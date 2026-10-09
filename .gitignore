@@ -1,0 +1,64 @@
+# Build directories
+build/
+build-*/
+out/
+cmake-build-*/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+Testing/
+_deps/
+compile_commands.json
+
+# Visual Studio / MSVC
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.patch
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+*.idb
+*.res
+
+# Ninja
+.ninja_deps
+.ninja_log
+
+# Xcode / macOS
+.DS_Store
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*~
+.clangd/
+.cache/
+
+# Clang tooling
+.clang-tidy
+.clang-format.bak
+
+# Packaging / plugin artifacts
+artifacts/
+*.vst3
+*.component
+
+# Local test assets (large / third-party licensed material, not committed)
+test-assets/
+tests/assets/

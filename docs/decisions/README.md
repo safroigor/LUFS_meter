@@ -1,0 +1,9 @@
+# Architecture Decision Records
+
+| ADR | Title | Status |
+|---|---|---|
+| [0001](0001-juce-license.md) | Use JUCE under AGPLv3 | accepted |
+| [0002](0002-measurement-library.md) | Use libebur128 for loudness measurement | accepted |
+| [0003](0003-real-time-architecture.md) | Dedicated measurement thread, exact mode | accepted |
+| [0004](0004-dependency-pinning.md) | Pin dependencies as git submodules | accepted |
+| [0005](0005-hosts-and-standard-revisions.md) | Standard revisions and host | accepted |
