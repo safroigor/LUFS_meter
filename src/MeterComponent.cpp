@@ -6,7 +6,7 @@ namespace
 {
     constexpr double minLufs = -30.0;
     constexpr double maxLufs = 0.0;
-    constexpr int    innerPadding = 8;
+    constexpr int    innerPadding = 6;
 
     const juce::Colour trackColour  = juce::Colour (0xff2b2b2b);
     const juce::Colour greenColour  = juce::Colour (0xff18c96a);
@@ -178,22 +178,21 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
 
     juce::Rectangle<int> labelArea;
     if (settings_.showLabel)
-        labelArea = r.removeFromTop (18);
+        labelArea = r.removeFromTop (16);
 
-    auto valueArea = r.removeFromBottom (compact ? 54 : 44);
+    auto valueArea = r.removeFromBottom (compact ? 52 : 42);
 
-    const int barThickness = compact ? 14 : 11;
-    const int gap = 5;
-    const int rulerWidth = compact ? 22 : 18;
-    const bool showScale = settings_.showScale;
+    const int barThickness = compact ? 13 : 11;
+    const int gap = 3;
+    const int rulerWidth = compact ? 13 : 11;
 
-    // Centre the bar and the ruler together, so the window can be narrow.
-    const int groupWidth = barThickness + (showScale ? gap + rulerWidth : 0);
-    const float groupX = centreX - (float) groupWidth * 0.5f;
-
+    // The bar is centred in the window; the ruler is drawn to its right and is
+    // NOT taken into account when centring the label and the value.
     const float radius = (float) barThickness * 0.5f;
-    juce::Rectangle<float> bar (groupX, (float) r.getY(),
-                                (float) barThickness, (float) r.getHeight());
+    juce::Rectangle<float> bar (centreX - (float) barThickness * 0.5f,
+                                (float) r.getY(),
+                                (float) barThickness,
+                                (float) r.getHeight());
 
     g.setColour (trackColour);
     g.fillRoundedRectangle (bar, radius);
@@ -212,9 +211,9 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
                                             bar.getWidth() + 8.0f, 2.0f));
     }
 
-    if (showScale)
+    if (settings_.showScale)
     {
-        g.setFont (compact ? 10.0f : 9.0f);
+        g.setFont (compact ? 9.0f : 8.0f);
         g.setColour (rulerColour);
 
         const int tickX = (int) bar.getRight() + gap;
@@ -225,8 +224,10 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
             g.fillRect (juce::Rectangle<float> ((float) tickX, y - 0.5f, 4.0f, 1.0f));
 
             const int labelY = juce::jlimit (0, juce::jmax (0, getHeight() - 12), (int) y - 6);
+            const int labelX = juce::jmin (tickX + 5, juce::jmax (0, getWidth() - rulerWidth - 2));
+
             g.drawText (juce::String (v < 0 ? -v : v),
-                        juce::Rectangle<int> (tickX + 6, labelY, rulerWidth, 12),
+                        juce::Rectangle<int> (labelX, labelY, rulerWidth + 4, 12),
                         juce::Justification::centredLeft, false);
         }
     }
@@ -234,17 +235,17 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
     if (settings_.showLabel)
     {
         g.setColour (textColour);
-        g.setFont (12.0f);
+        g.setFont (11.0f);
         g.drawText ("LUFS", labelArea, juce::Justification::centred, false);
     }
 
     {
         const auto valueText = formatValue (hasValue, value);
-        juce::Font valueFont (juce::FontOptions ((float) (compact ? 28 : 22)));
+        juce::Font valueFont (juce::FontOptions ((float) (compact ? 26 : 20)));
         g.setFont (valueFont);
         g.setColour (hasValue ? textColour : dimColour);
 
-        auto valueRect = valueArea.withTrimmedBottom (compact ? 18 : 14);
+        auto valueRect = valueArea.withTrimmedBottom (compact ? 17 : 13);
 
         // Centre the digits, not the leading minus: every LUFS reading is
         // negative, so including the sign would shift the digits to the right.
@@ -259,6 +260,6 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
 
     g.setColour (dimColour);
     g.setFont (compact ? 11.0f : 10.0f);
-    g.drawText ("LUFS", valueArea.removeFromBottom (compact ? 18 : 14),
+    g.drawText ("LUFS", valueArea.removeFromBottom (compact ? 17 : 13),
                 juce::Justification::centred, false);
 }

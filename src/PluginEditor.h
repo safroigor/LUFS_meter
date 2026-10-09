@@ -39,7 +39,7 @@ private:
     MeterComponent meter_;
     juce::TextButton settingsButton_;
 
-    static constexpr int outerPadding = 10;
+    static constexpr int outerPadding = 8;
     static constexpr int buttonSize = 24;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LufsMeterAudioProcessorEditor)
