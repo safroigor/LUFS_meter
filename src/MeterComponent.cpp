@@ -59,8 +59,8 @@ namespace
             const float x = bar.getX() + proportion ((double) v) * bar.getWidth();
             g.fillRect (juce::Rectangle<float> (x - 0.5f, (float) labelTop - 5.0f, 1.0f, 4.0f));
 
-            // The scale shows magnitudes only: repeating minus signs next to a
-            // negative reading looked like two minus signs.
+            // Magnitudes only: repeating minus signs beside a negative reading
+            // looked like two minus signs.
             const int labelX = juce::jlimit (0, juce::jmax (0, componentWidth - 32),
                                              (int) x - 16);
             g.drawText (juce::String (v < 0 ? -v : v),
@@ -174,20 +174,26 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
     const bool compact = settings_.size == MeterSizeMode::compact;
 
     auto r = area.reduced (innerPadding, 6);
-    const float centreX = (float) r.getCentreX();
+    const float centreX = (float) getWidth() * 0.5f;
 
     juce::Rectangle<int> labelArea;
     if (settings_.showLabel)
         labelArea = r.removeFromTop (18);
 
-    auto valueArea = r.removeFromBottom (compact ? 58 : 46);
+    auto valueArea = r.removeFromBottom (compact ? 54 : 44);
 
-    const int barThickness = compact ? 16 : 12;
+    const int barThickness = compact ? 14 : 11;
+    const int gap = 5;
+    const int rulerWidth = compact ? 22 : 18;
+    const bool showScale = settings_.showScale;
+
+    // Centre the bar and the ruler together, so the window can be narrow.
+    const int groupWidth = barThickness + (showScale ? gap + rulerWidth : 0);
+    const float groupX = centreX - (float) groupWidth * 0.5f;
+
     const float radius = (float) barThickness * 0.5f;
-    juce::Rectangle<float> bar (centreX - (float) barThickness * 0.5f,
-                                (float) r.getY(),
-                                (float) barThickness,
-                                (float) r.getHeight());
+    juce::Rectangle<float> bar (groupX, (float) r.getY(),
+                                (float) barThickness, (float) r.getHeight());
 
     g.setColour (trackColour);
     g.fillRoundedRectangle (bar, radius);
@@ -206,12 +212,12 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
                                             bar.getWidth() + 8.0f, 2.0f));
     }
 
-    if (settings_.showScale)
+    if (showScale)
     {
-        g.setFont (compact ? 10.5f : 9.5f);
+        g.setFont (compact ? 10.0f : 9.0f);
         g.setColour (rulerColour);
 
-        const int tickX = (int) bar.getRight() + 6;
+        const int tickX = (int) bar.getRight() + gap;
 
         for (int v = (int) minLufs; v <= (int) maxLufs; v += 3)
         {
@@ -220,7 +226,7 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
 
             const int labelY = juce::jlimit (0, juce::jmax (0, getHeight() - 12), (int) y - 6);
             g.drawText (juce::String (v < 0 ? -v : v),
-                        juce::Rectangle<int> (tickX + 6, labelY, 28, 12),
+                        juce::Rectangle<int> (tickX + 6, labelY, rulerWidth, 12),
                         juce::Justification::centredLeft, false);
         }
     }

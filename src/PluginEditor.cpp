@@ -15,14 +15,14 @@ LufsMeterAudioProcessorEditor::LufsMeterAudioProcessorEditor (LufsMeterAudioProc
 {
     setResizable (true, true);
     if (auto* limits = getConstrainer())
-        limits->setSizeLimits (110, 70, 4000, 4000);
+        limits->setSizeLimits (66, 52, 4000, 4000);
 
     addAndMakeVisible (meter_);
 
     settingsButton_.setButtonText (juce::String::fromUTF8 ("\xE2\x9A\x99"));
-    settingsButton_.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff232323));
-    settingsButton_.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff6f6f6f));
-    settingsButton_.setColour (juce::TextButton::textColourOnId, juce::Colour (0xff9a9a9a));
+    settingsButton_.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    settingsButton_.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff565656));
+    settingsButton_.setColour (juce::TextButton::textColourOnId, juce::Colour (0xff8f8f8f));
     settingsButton_.onClick = [this] { showSettings(); };
     addAndMakeVisible (settingsButton_);
 
@@ -44,8 +44,8 @@ juce::Point<int> LufsMeterAudioProcessorEditor::getPreferredSize (const MeterSet
         return s.size == MeterSizeMode::compact ? juce::Point<int> (410, 78)
                                                 : juce::Point<int> (410, 58);
 
-    return s.size == MeterSizeMode::compact ? juce::Point<int> (116, 320)
-                                            : juce::Point<int> (92, 280);
+    return s.size == MeterSizeMode::compact ? juce::Point<int> (84, 300)
+                                            : juce::Point<int> (70, 260);
 }
 
 void LufsMeterAudioProcessorEditor::timerCallback()
