@@ -15,7 +15,7 @@ LufsMeterAudioProcessorEditor::LufsMeterAudioProcessorEditor (LufsMeterAudioProc
 {
     setResizable (true, true);
     if (auto* limits = getConstrainer())
-        limits->setSizeLimits (170, 90, 4000, 4000);
+        limits->setSizeLimits (110, 70, 4000, 4000);
 
     addAndMakeVisible (meter_);
 
@@ -41,8 +41,8 @@ juce::Point<int> LufsMeterAudioProcessorEditor::getPreferredSize (const MeterSet
         return s.size == MeterSizeMode::compact ? juce::Point<int> (410, 78)
                                                 : juce::Point<int> (410, 58);
 
-    return s.size == MeterSizeMode::compact ? juce::Point<int> (126, 330)
-                                            : juce::Point<int> (100, 290);
+    return s.size == MeterSizeMode::compact ? juce::Point<int> (116, 320)
+                                            : juce::Point<int> (92, 280);
 }
 
 void LufsMeterAudioProcessorEditor::timerCallback()
