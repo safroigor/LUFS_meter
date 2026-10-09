@@ -3,9 +3,10 @@
 This document records the test matrix, the reference values, the accepted
 tolerances and the observed results.
 
-> **Stage 2 status:** the measurement engine is implemented and its unit tests
-> pass. The Stage 2 plugin binary has not yet been reloaded in REAPER (the host
-> holds the DLL). The meter UI is Stage 3.
+> **Stage 3 status:** build, measurement engine, unit tests and the meter UI are
+> implemented. Automated tests cover measurement only; the UI and the
+> session freeze/restart behaviour require host verification (REAPER), which is
+> pending because the host holds the previous DLL.
 
 ## Tolerance policy
 
@@ -58,8 +59,12 @@ Windows SDK 10.0.26100.0, JUCE 8.0.15, libebur128 v1.2.6.
 
 ## Not yet verified
 
-- Plugin load of the **Stage 2** build in REAPER (the host currently has the
-  plugin loaded, which locks the DLL; re-copy after unloading).
+- Reload of the current build in REAPER (the host holds the DLL; unload the
+  plugin or close REAPER first).
+- UI behaviour in a host: orientation switch, Slim/Compact, Show label/scale,
+  Reset, and settings persistence.
+- Session behaviour in a host: value freezes on transport stop/pause and starts
+  fresh on resume.
 - EBU Loudness Test Set v5.0 files (external, 48 kHz).
 - Cross-check against an independent meter (Melda MLoudnessAnalyzer).
 - Long-duration accumulation stability.

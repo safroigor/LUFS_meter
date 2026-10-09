@@ -7,8 +7,9 @@ bar scale.
 The plugin is a **measurement device**. It never modifies the incoming audio
 signal.
 
-> **Status: development.** Stage 1 (reproducible VST3 build) and Stage 2
-> (measurement engine + unit tests) are complete. The meter UI is Stage 3. See
+> **Status: development.** Stages 1–3 are implemented: reproducible VST3 build,
+> measurement engine with passing unit tests, and the meter UI (horizontal /
+> vertical, slim / compact, reset, session freeze/restart). See
 > [docs/development.md](docs/development.md) and [docs/testing.md](docs/testing.md)
 > for the exact state.
 

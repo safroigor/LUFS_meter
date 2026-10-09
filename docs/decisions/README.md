@@ -7,3 +7,4 @@
 | [0003](0003-real-time-architecture.md) | Dedicated measurement thread, exact mode | accepted |
 | [0004](0004-dependency-pinning.md) | Pin dependencies as git submodules | accepted |
 | [0005](0005-hosts-and-standard-revisions.md) | Standard revisions and host | accepted |
+| [0006](0006-session-behavior.md) | Session behaviour: freeze / restart | accepted |

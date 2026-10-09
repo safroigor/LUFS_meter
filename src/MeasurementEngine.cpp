@@ -87,8 +87,9 @@ void MeasurementEngine::pushBlock (const juce::AudioBuffer<float>& buffer, int n
     fifo_.finishedWrite (size1 + size2);
 }
 
-void MeasurementEngine::requestReset() noexcept
+void MeasurementEngine::requestReset (bool discardQueued) noexcept
 {
+    resetDiscardQueued_.store (discardQueued, std::memory_order_relaxed);
     resetRequested_.store (true, std::memory_order_relaxed);
 }
 
@@ -98,15 +99,19 @@ void MeasurementEngine::run()
     {
         if (resetRequested_.exchange (false, std::memory_order_relaxed))
         {
-            // Discard anything queued from before the reset, then restart the
-            // measurement so stale data can never be shown as a new result.
-            const int pending = fifo_.getNumReady();
-
-            if (pending > 0)
+            // Optionally discard anything queued from before the reset, then
+            // restart the measurement so stale data can never be shown as a new
+            // result.
+            if (resetDiscardQueued_.load (std::memory_order_relaxed))
             {
-                int s1 = 0, z1 = 0, s2 = 0, z2 = 0;
-                fifo_.prepareToRead (pending, s1, z1, s2, z2);
-                fifo_.finishedRead (z1 + z2);
+                const int pending = fifo_.getNumReady();
+
+                if (pending > 0)
+                {
+                    int s1 = 0, z1 = 0, s2 = 0, z2 = 0;
+                    fifo_.prepareToRead (pending, s1, z1, s2, z2);
+                    fifo_.finishedRead (z1 + z2);
+                }
             }
 
             meter_.reset();

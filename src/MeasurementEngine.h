@@ -36,8 +36,12 @@ public:
         more than the ring-buffer duration behind. */
     void pushBlock (const juce::AudioBuffer<float>& buffer, int numSamples) noexcept;
 
-    /** Requests a fresh measurement. Executed on the worker thread. */
-    void requestReset() noexcept;
+    /** Runs on the worker thread. Starts a new measurement. When
+        discardQueued is true, any already-queued audio is dropped first (used
+        by the UI Reset button); otherwise queued samples are kept and fed into
+        the fresh measurement (used when playback resumes after an
+        interruption). */
+    void requestReset (bool discardQueued = true) noexcept;
 
     /** Latest snapshot for the UI. hasValue() == false means "no trustworthy
         value yet" and getIntegratedLufs() must not be displayed. */
@@ -55,6 +59,7 @@ private:
     int channels_ = 0;
 
     std::atomic<bool> resetRequested_ { false };
+    std::atomic<bool> resetDiscardQueued_ { true };
     std::atomic<bool> hasValue_ { false };
     std::atomic<double> value_ { 0.0 };
 

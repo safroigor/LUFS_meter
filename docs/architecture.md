@@ -53,9 +53,28 @@ The plugin separates three concerns:
 
 ### PluginEditor
 - Displays the numeric Integrated LUFS value rounded to 0.1 LU.
-- Draws a slim bar scale (horizontal or vertical).
-- Provides Reset and display options (orientation, size, label, scale).
-- Reads only the atomic snapshot; performs no DSP.
+- Draws a slim bar scale (horizontal or vertical) via `MeterComponent`.
+- Provides a settings panel: orientation (Horizontal/Vertical), size
+  (Slim/Compact), Show label, Show scale, and Reset.
+- Settings are persisted in the plugin state (saved/restored with the host
+  project).
+- Reads only the atomic snapshot; performs no DSP. Changing orientation or size
+  never resets the measurement.
+
+## Session behaviour (freeze / restart)
+
+Per the product requirement, the meter measures one session at a time:
+
+- While audio plays, the Integrated value is measured continuously.
+- On an interruption — transport stop/pause, a gap in processing, or a genuine
+  break in the audio (near-digital silence) — the last value is **frozen** and
+  no further audio is fed to the meter.
+- When audio resumes, a **fresh measurement** starts that does not include any
+  previously accumulated audio; the display shows the "no value" placeholder
+  until a new value is available.
+
+Detection thresholds and rationale are recorded in
+`docs/decisions/0006-session-behavior.md`.
 
 ## Threading and synchronisation
 
