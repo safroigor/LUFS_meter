@@ -61,6 +61,7 @@ target_sources(LUFSMeter PRIVATE
     src/PluginProcessor.cpp
     src/PluginEditor.cpp
     src/MeterComponent.cpp
+    src/SettingsContent.cpp
     src/LoudnessMeter.cpp
     src/MeasurementEngine.cpp)
 

@@ -9,12 +9,12 @@
 class LufsMeterAudioProcessor;
 
 /**
-    Compact dark editor for the LUFS Meter.
+    Compact, resizable dark editor for the LUFS Meter.
 
-    Shows the numeric Integrated Loudness and a slim scale, with a settings
-    panel (orientation, size, label/scale visibility) and a Reset button. The
-    editor only reads an atomic snapshot; changing orientation/size never resets
-    the measurement.
+    The meter fills the padded content area except for a small settings button.
+    Settings open in a CallOutBox, so they work identically in horizontal and
+    vertical orientation and never disturb the layout. Changing orientation or
+    size never resets the measurement.
 */
 class LufsMeterAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                             private juce::Timer
@@ -26,30 +26,21 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    /** Called by the settings popup. */
+    void applyPopupSettings (const MeterSettings&);
+    void popupReset();
+
 private:
     void timerCallback() override;
-    void toggleSettings();
-    void applySettings();
-    void refreshControlsFromSettings();
-    juce::Point<int> getMeasuredSize() const;
+    void showSettings();
+    juce::Point<int> getPreferredSize (const MeterSettings&) const;
 
     LufsMeterAudioProcessor& processorRef;
-
     MeterComponent meter_;
-    juce::TextButton gearButton_;
+    juce::TextButton settingsButton_;
 
-    juce::TextButton orientationHorizontal_ { "Horizontal" };
-    juce::TextButton orientationVertical_   { "Vertical" };
-    juce::ComboBox sizeCombo_;
-    juce::ToggleButton showLabelToggle_ { "Show label" };
-    juce::ToggleButton showScaleToggle_ { "Show scale" };
-    juce::TextButton resetButton_ { "Reset" };
-
-    bool settingsVisible_ = false;
-    bool updatingControls_ = false;
-
-    static constexpr int gearStripWidth = 30;
-    static constexpr int settingsPanelHeight = 150;
+    static constexpr int outerPadding = 10;
+    static constexpr int buttonSize = 24;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LufsMeterAudioProcessorEditor)
 };

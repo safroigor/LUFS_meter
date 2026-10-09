@@ -6,6 +6,7 @@ namespace
 {
     constexpr double minLufs = -30.0;
     constexpr double maxLufs = 0.0;
+    constexpr int    innerPadding = 8;
 
     const juce::Colour trackColour  = juce::Colour (0xff2b2b2b);
     const juce::Colour greenColour  = juce::Colour (0xff18c96a);
@@ -19,7 +20,6 @@ namespace
         return (float) juce::jlimit (0.0, 1.0, (value - minLufs) / (maxLufs - minLufs));
     }
 
-    /** Gradient that runs green (at minLufs) to yellow (at -14 LUFS). */
     juce::ColourGradient makeGradient (juce::Point<float> from, juce::Point<float> to)
     {
         const auto yellowProportion = proportion (-14.0);
@@ -30,10 +30,20 @@ namespace
 
     juce::String formatValue (bool hasValue, double value)
     {
-        if (! hasValue)
-            return juce::String::fromUTF8 ("\u2014");
+        return hasValue ? juce::String (value, 1)
+                        : juce::String::fromUTF8 ("\u2014");
+    }
 
-        return juce::String (value, 1);
+    void drawFilledTrack (juce::Graphics& g, juce::Rectangle<float> bar, float radius,
+                          juce::Rectangle<float> filled, juce::ColourGradient gradient)
+    {
+        juce::Path clip;
+        clip.addRoundedRectangle (bar, radius);
+
+        juce::Graphics::ScopedSaveState save (g);
+        g.reduceClipRegion (clip);
+        g.setGradientFill (gradient);
+        g.fillRect (filled);
     }
 }
 
@@ -63,56 +73,69 @@ void MeterComponent::paintHorizontal (juce::Graphics& g, juce::Rectangle<int> ar
                                       bool hasValue, double value)
 {
     const bool compact = settings_.size == MeterSizeMode::compact;
-    const int valueWidth = compact ? 116 : 96;
 
-    auto valueArea = area.removeFromRight (valueWidth);
+    auto r = area.reduced (innerPadding, 0);
+    const int numFont = compact ? 34 : 26;
+    const int unitFont = compact ? 12 : 10;
+    const int unitWidth = compact ? 44 : 36;
+    const int valueWidth = (compact ? 120 : 100);
+
+    auto valueArea = r.removeFromRight (valueWidth);
     juce::Rectangle<int> labelArea;
 
     if (settings_.showLabel)
-        labelArea = area.removeFromLeft (compact ? 58 : 50);
+        labelArea = r.removeFromLeft (compact ? 56 : 48);
 
-    auto scaleArea = settings_.showScale ? area.removeFromBottom (16)
-                                         : juce::Rectangle<int>();
+    const int barThickness = compact ? 18 : 12;
+    const int gap = 6;
+    const int scaleHeight = 14;
+    const int blockHeight = barThickness + (settings_.showScale ? gap + scaleHeight : 0);
 
-    const int thickness = compact ? 20 : 12;
-    auto bar = area.withSizeKeepingCentre (area.getWidth(), thickness).toFloat();
+    auto block = r.withSizeKeepingCentre (r.getWidth(), blockHeight);
+    auto barArea = block.removeFromTop (barThickness).toFloat();
 
-    // Track.
+    juce::Rectangle<int> scaleArea;
+
+    if (settings_.showScale)
+    {
+        block.removeFromTop (gap);
+        scaleArea = block;
+    }
+
+    const float radius = (float) barThickness * 0.5f;
+
     g.setColour (trackColour);
-    g.fillRoundedRectangle (bar, (float) thickness * 0.5f);
+    g.fillRoundedRectangle (barArea, radius);
 
     if (hasValue)
     {
-        const float t = proportion (value);
-        const float x = bar.getX() + t * bar.getWidth();
-        auto filled = bar.withRight (x);
+        const float x = barArea.getX() + proportion (value) * barArea.getWidth();
 
-        g.setGradientFill (makeGradient ({ bar.getX(), bar.getCentreY() },
-                                         { bar.getRight(), bar.getCentreY() }));
-        g.fillRect (filled);
+        drawFilledTrack (g, barArea, radius,
+                         { barArea.getX(), barArea.getY(), x - barArea.getX(), barArea.getHeight() },
+                         makeGradient ({ barArea.getX(), barArea.getCentreY() },
+                                       { barArea.getRight(), barArea.getCentreY() }));
 
         g.setColour (markerColour);
-        g.fillRect (juce::Rectangle<float> (x - 1.0f, bar.getY() - 3.0f, 2.0f, bar.getHeight() + 6.0f));
+        g.fillRect (juce::Rectangle<float> (x - 1.0f, barArea.getY() - 4.0f,
+                                            2.0f, barArea.getHeight() + 8.0f));
     }
 
-    // Scale ticks.
     if (settings_.showScale)
     {
-        g.setFont (compact ? 10.0f : 9.0f);
+        g.setFont (compact ? 10.5f : 9.5f);
         g.setColour (dimColour);
 
         for (int v = (int) minLufs; v <= (int) maxLufs; v += 3)
         {
-            const float x = bar.getX() + proportion ((double) v) * bar.getWidth();
-
+            const float x = barArea.getX() + proportion ((double) v) * barArea.getWidth();
             g.fillRect (juce::Rectangle<float> (x - 0.5f, (float) scaleArea.getY(), 1.0f, 4.0f));
             g.drawText (juce::String (v),
-                        juce::Rectangle<int> ((int) x - 16, scaleArea.getY() + 4, 32, 12),
+                        juce::Rectangle<int> ((int) x - 16, scaleArea.getY() + 5, 32, 12),
                         juce::Justification::centred, false);
         }
     }
 
-    // Label.
     if (settings_.showLabel)
     {
         g.setColour (textColour);
@@ -120,18 +143,22 @@ void MeterComponent::paintHorizontal (juce::Graphics& g, juce::Rectangle<int> ar
         g.drawText ("LUFS", labelArea, juce::Justification::centredLeft, false);
     }
 
-    // Numeric value.
+    // Numeric value and unit, vertically aligned with the centre of the bar.
+    const auto centreY = barArea.getCentreY();
+
     g.setColour (hasValue ? textColour : dimColour);
-    g.setFont (compact ? 32.0f : 24.0f);
-    g.drawText (formatValue (hasValue, value),
-                valueArea.withTrimmedRight (compact ? 42 : 34),
-                juce::Justification::centredRight, false);
+    g.setFont ((float) numFont);
+    auto numRect = valueArea.withTrimmedRight (unitWidth);
+    numRect = numRect.withSizeKeepingCentre (numRect.getWidth(), numFont)
+                     .translated (0, (int) centreY - numRect.getCentreY());
+    g.drawText (formatValue (hasValue, value), numRect, juce::Justification::centredRight, false);
 
     g.setColour (dimColour);
-    g.setFont (compact ? 12.0f : 10.0f);
-    g.drawText ("LUFS",
-                valueArea.removeFromRight (compact ? 42 : 34),
-                juce::Justification::centredLeft, false);
+    g.setFont ((float) unitFont);
+    auto unitRect = valueArea.removeFromRight (unitWidth);
+    unitRect = unitRect.withSizeKeepingCentre (unitRect.getWidth(), unitFont)
+                       .translated (0, (int) centreY - unitRect.getCentreY());
+    g.drawText ("LUFS", unitRect, juce::Justification::centredLeft, false);
 }
 
 void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area,
@@ -139,47 +166,49 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
 {
     const bool compact = settings_.size == MeterSizeMode::compact;
 
+    auto r = area.reduced (innerPadding, 6);
+
     juce::Rectangle<int> labelArea;
 
     if (settings_.showLabel)
-        labelArea = area.removeFromTop (18);
+        labelArea = r.removeFromTop (18);
 
-    auto valueArea = area.removeFromBottom (compact ? 56 : 44);
-    auto scaleArea = settings_.showScale ? area.removeFromRight (34)
+    auto valueArea = r.removeFromBottom (compact ? 58 : 46);
+    auto scaleArea = settings_.showScale ? r.removeFromRight (32)
                                          : juce::Rectangle<int>();
 
-    const int thickness = compact ? 18 : 12;
-    auto bar = area.withSizeKeepingCentre (thickness, area.getHeight()).toFloat();
+    const int barThickness = compact ? 16 : 12;
+    auto barArea = r.withSizeKeepingCentre (barThickness, r.getHeight()).toFloat();
+    const float radius = (float) barThickness * 0.5f;
 
     g.setColour (trackColour);
-    g.fillRoundedRectangle (bar, (float) thickness * 0.5f);
+    g.fillRoundedRectangle (barArea, radius);
 
     if (hasValue)
     {
-        const float t = proportion (value);
-        const float y = bar.getBottom() - t * bar.getHeight();
-        auto filled = bar.withTop (y);
+        const float y = barArea.getBottom() - proportion (value) * barArea.getHeight();
 
-        g.setGradientFill (makeGradient ({ bar.getCentreX(), bar.getBottom() },
-                                         { bar.getCentreX(), bar.getY() }));
-        g.fillRect (filled);
+        drawFilledTrack (g, barArea, radius,
+                         { barArea.getX(), y, barArea.getWidth(), barArea.getBottom() - y },
+                         makeGradient ({ barArea.getCentreX(), barArea.getBottom() },
+                                       { barArea.getCentreX(), barArea.getY() }));
 
         g.setColour (markerColour);
-        g.fillRect (juce::Rectangle<float> (bar.getX() - 3.0f, y - 1.0f, bar.getWidth() + 6.0f, 2.0f));
+        g.fillRect (juce::Rectangle<float> (barArea.getX() - 4.0f, y - 1.0f,
+                                            barArea.getWidth() + 8.0f, 2.0f));
     }
 
     if (settings_.showScale)
     {
-        g.setFont (compact ? 10.0f : 9.0f);
+        g.setFont (compact ? 10.5f : 9.5f);
         g.setColour (dimColour);
 
         for (int v = (int) minLufs; v <= (int) maxLufs; v += 3)
         {
-            const float y = bar.getBottom() - proportion ((double) v) * bar.getHeight();
-
+            const float y = barArea.getBottom() - proportion ((double) v) * barArea.getHeight();
             g.fillRect (juce::Rectangle<float> ((float) scaleArea.getX(), y - 0.5f, 4.0f, 1.0f));
             g.drawText (juce::String (v),
-                        juce::Rectangle<int> (scaleArea.getX() + 5, (int) y - 6, 28, 12),
+                        juce::Rectangle<int> (scaleArea.getX() + 5, (int) y - 6, 26, 12),
                         juce::Justification::centredLeft, false);
         }
     }
@@ -192,13 +221,13 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
     }
 
     g.setColour (hasValue ? textColour : dimColour);
-    g.setFont (compact ? 26.0f : 20.0f);
+    g.setFont (compact ? 28.0f : 22.0f);
     g.drawText (formatValue (hasValue, value),
-                valueArea.withTrimmedBottom (compact ? 16 : 13),
+                valueArea.withTrimmedBottom (compact ? 18 : 14),
                 juce::Justification::centred, false);
 
     g.setColour (dimColour);
     g.setFont (compact ? 11.0f : 10.0f);
-    g.drawText ("LUFS", valueArea.removeFromBottom (compact ? 16 : 13),
+    g.drawText ("LUFS", valueArea.removeFromBottom (compact ? 18 : 14),
                 juce::Justification::centred, false);
 }
