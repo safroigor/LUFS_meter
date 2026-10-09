@@ -13,6 +13,7 @@ namespace
     const juce::Colour yellowColour = juce::Colour (0xfff2d90b);
     const juce::Colour textColour   = juce::Colour (0xffececec);
     const juce::Colour dimColour    = juce::Colour (0xff8f8f8f);
+    const juce::Colour rulerColour  = juce::Colour (0xff565656);
     const juce::Colour markerColour = juce::Colour (0xffffffff);
 
     float proportion (double value)
@@ -51,18 +52,18 @@ namespace
                               int labelTop, float fontHeight)
     {
         g.setFont (fontHeight);
-        g.setColour (dimColour);
+        g.setColour (rulerColour);
 
         for (int v = (int) minLufs; v <= (int) maxLufs; v += 3)
         {
             const float x = bar.getX() + proportion ((double) v) * bar.getWidth();
             g.fillRect (juce::Rectangle<float> (x - 0.5f, (float) labelTop - 5.0f, 1.0f, 4.0f));
 
-            // Keep end labels inside the component (the ruler may shift slightly
-            // relative to the bar so the "-30"/"0" labels stay readable).
+            // The scale shows magnitudes only: repeating minus signs next to a
+            // negative reading looked like two minus signs.
             const int labelX = juce::jlimit (0, juce::jmax (0, componentWidth - 32),
                                              (int) x - 16);
-            g.drawText (juce::String (v),
+            g.drawText (juce::String (v < 0 ? -v : v),
                         juce::Rectangle<int> (labelX, labelTop, 32, 12),
                         juce::Justification::centred, false);
         }
@@ -208,7 +209,7 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
     if (settings_.showScale)
     {
         g.setFont (compact ? 10.5f : 9.5f);
-        g.setColour (dimColour);
+        g.setColour (rulerColour);
 
         const int tickX = (int) bar.getRight() + 6;
 
@@ -218,7 +219,7 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
             g.fillRect (juce::Rectangle<float> ((float) tickX, y - 0.5f, 4.0f, 1.0f));
 
             const int labelY = juce::jlimit (0, juce::jmax (0, getHeight() - 12), (int) y - 6);
-            g.drawText (juce::String (v),
+            g.drawText (juce::String (v < 0 ? -v : v),
                         juce::Rectangle<int> (tickX + 6, labelY, 28, 12),
                         juce::Justification::centredLeft, false);
         }
@@ -231,11 +232,24 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
         g.drawText ("LUFS", labelArea, juce::Justification::centred, false);
     }
 
-    g.setColour (hasValue ? textColour : dimColour);
-    g.setFont (compact ? 28.0f : 22.0f);
-    g.drawText (formatValue (hasValue, value),
-                valueArea.withTrimmedBottom (compact ? 18 : 14),
-                juce::Justification::centred, false);
+    {
+        const auto valueText = formatValue (hasValue, value);
+        juce::Font valueFont (juce::FontOptions ((float) (compact ? 28 : 22)));
+        g.setFont (valueFont);
+        g.setColour (hasValue ? textColour : dimColour);
+
+        auto valueRect = valueArea.withTrimmedBottom (compact ? 18 : 14);
+
+        // Centre the digits, not the leading minus: every LUFS reading is
+        // negative, so including the sign would shift the digits to the right.
+        if (valueText.startsWithChar ('-'))
+        {
+            const float signWidth = juce::GlyphArrangement::getStringWidth (valueFont, "-");
+            valueRect.translate ((int) (-signWidth * 0.5f), 0);
+        }
+
+        g.drawText (valueText, valueRect, juce::Justification::centred, false);
+    }
 
     g.setColour (dimColour);
     g.setFont (compact ? 11.0f : 10.0f);

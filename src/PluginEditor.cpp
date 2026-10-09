@@ -20,6 +20,9 @@ LufsMeterAudioProcessorEditor::LufsMeterAudioProcessorEditor (LufsMeterAudioProc
     addAndMakeVisible (meter_);
 
     settingsButton_.setButtonText (juce::String::fromUTF8 ("\xE2\x9A\x99"));
+    settingsButton_.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff232323));
+    settingsButton_.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff6f6f6f));
+    settingsButton_.setColour (juce::TextButton::textColourOnId, juce::Colour (0xff9a9a9a));
     settingsButton_.onClick = [this] { showSettings(); };
     addAndMakeVisible (settingsButton_);
 
