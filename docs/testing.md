@@ -3,10 +3,9 @@
 This document records the test matrix, the reference values, the accepted
 tolerances and the observed results.
 
-> **Stage 3 status:** build, measurement engine, unit tests and the meter UI are
-> implemented. Automated tests cover measurement only; the UI and the
-> session freeze/restart behaviour require host verification (REAPER), which is
-> pending because the host holds the previous DLL.
+> **Status: v1.0.0 (release).** Build, measurement engine, unit tests and the
+> meter UI are implemented and verified in REAPER by the user. Automated tests
+> cover measurement only.
 
 ## Tolerance policy
 
@@ -57,15 +56,23 @@ Run via CTest. Result: **27 checks, 0 failures**.
 CMake 4.4.4, Ninja 1.13.2, MSVC 19.44.35229 (toolset 14.44.35207),
 Windows SDK 10.0.26100.0, JUCE 8.0.15, libebur128 v1.2.6.
 
-## Not yet verified
+## Host verification (performed by the user)
 
-- Reload of the current build in REAPER (the host holds the DLL; unload the
-  plugin or close REAPER first).
-- UI behaviour in a host: orientation switch, Slim/Compact, Show label/scale,
-  Reset, and settings persistence.
-- Session behaviour in a host: value freezes on transport stop/pause and starts
-  fresh on resume.
-- EBU Loudness Test Set v5.0 files (external, 48 kHz).
-- Cross-check against an independent meter (Melda MLoudnessAnalyzer).
-- Long-duration accumulation stability.
-- 5.1 / other channel layouts.
+- The plugin loads and runs in **REAPER x64**; the reading updates during
+  playback and freezes on interruption.
+- The reading was cross-checked against an **independent meter**
+  (MeldaProduction MLoudnessAnalyzer) on identical material and matched.
+- The UI was verified in both orientations: layout, settings popup,
+  Slim/Compact, Show label/scale, Reset, and resize.
+
+## Known limitations / not verified
+
+- **EBU Loudness Test Set v5.0** could not be downloaded automatically: the EBU
+  site returns a Cloudflare "Attention Required" block. The ±0.1 LU reference is
+  therefore covered by the synthesized EBU Tech 3341 case-1 test (see above)
+  rather than the official files.
+- Long-duration accumulation stability (multiple hours) was not measured.
+- Channel layouts beyond mono and stereo (e.g. 5.1) were not verified.
+- The session freeze/restart thresholds (`-100 dBFS`, `500 ms`, `1000 ms`) are
+  compile-time constants; the practical behaviour was confirmed by ear/host use
+  but not exhaustively quantified.

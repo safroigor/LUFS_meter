@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(LUFSMeter VERSION 0.1.0 LANGUAGES C CXX)
+project(LUFSMeter VERSION 1.0.0 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 # Global settings
@@ -48,6 +48,7 @@ juce_add_plugin(LUFSMeter
     PLUGIN_CODE               Lufs
     PRODUCT_NAME              "LUFS Meter"
     DESCRIPTION               "Accurate Integrated LUFS meter (EBU R128 / ITU-R BS.1770)"
+    VERSION                   1.0.0
     FORMATS                   VST3
     IS_SYNTH                  FALSE
     NEEDS_MIDI_INPUT          FALSE

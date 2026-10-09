@@ -96,6 +96,17 @@ Then in REAPER: *Options > Preferences > Plug-ins > VST* and *Re-scan*.
 The concrete path and successful load are recorded in `docs/testing.md` once
 verified.
 
+## Release
+
+Current release: **v1.0.0** (VST3, Windows x64). Plugin identity (manufacturer
+code, plugin code, bundle identifier, version) is listed in the
+[README](../README.md). The verified environment and test results are in
+[docs/testing.md](testing.md).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Preset release -Test
+```
+
 ## Notes / limitations
 
 - The plugin currently has no installer; deployment is a manual copy of the

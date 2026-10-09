@@ -7,11 +7,10 @@ bar scale.
 The plugin is a **measurement device**. It never modifies the incoming audio
 signal.
 
-> **Status: development.** Stages 1–3 are implemented: reproducible VST3 build,
-> measurement engine with passing unit tests, and the meter UI (horizontal /
-> vertical, slim / compact, reset, session freeze/restart). See
+> **Status: v1.0.0 (release).** Reproducible VST3 build, measurement engine
+> with passing unit tests, and the meter UI. See
 > [docs/development.md](docs/development.md) and [docs/testing.md](docs/testing.md)
-> for the exact state.
+> for the exact verified state.
 
 ## Features (target)
 
@@ -26,6 +25,17 @@ signal.
 
 Out of scope for v1: True Peak, Momentary/Short-term LUFS, dynamics processing,
 loudness history graphs, target levels, extra DSP.
+
+## Plugin identity
+
+| Field | Value |
+|---|---|
+| Manufacturer | SafroAudio |
+| Manufacturer code | `Safr` |
+| Plugin code | `Lufs` |
+| Bundle identifier | `com.SafroAudio.LUFSMeter` |
+| Product version | 1.0.0 |
+| Format | VST3, Windows x64 |
 
 ## Requirements
 
