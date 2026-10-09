@@ -13,13 +13,25 @@
     The audio thread only copies interleaved samples into a lock-free SPSC ring
     buffer (juce::AbstractFifo) and sets an atomic reset flag. A dedicated
     worker thread owns the LoudnessMeter (libebur128 is not thread-safe) and
-    periodically publishes the Integrated Loudness as an atomic snapshot.
+    periodically publishes Integrated, Momentary, Short-Term and True Peak as one
+    coherent snapshot.
 
-    See docs/architecture.md and docs/decisions/0003-real-time-architecture.md.
+    See docs/architecture.md, docs/decisions/0003-real-time-architecture.md and
+    docs/decisions/0008-coherent-reading-snapshot.md.
 */
 class MeasurementEngine final : private juce::Thread
 {
 public:
+    /** A coherent set of the latest measurements. `has*` is false when no
+        trustworthy value exists for that measurement (see LoudnessMeter). */
+    struct Reading
+    {
+        bool   hasIntegrated = false; double integrated = 0.0;
+        bool   hasMomentary  = false; double momentary  = 0.0;
+        bool   hasShortTerm  = false; double shortTerm  = 0.0;
+        bool   hasTruePeak   = false; double truePeak   = 0.0; // dBTP
+    };
+
     MeasurementEngine();
     ~MeasurementEngine() override;
 
@@ -43,14 +55,25 @@ public:
         interruption). */
     void requestReset (bool discardQueued = true) noexcept;
 
-    /** Latest snapshot for the UI. hasValue() == false means "no trustworthy
-        value yet" and getIntegratedLufs() must not be displayed. */
-    bool hasValue() const noexcept { return hasValue_.load (std::memory_order_relaxed); }
-    double getIntegratedLufs() const noexcept { return value_.load (std::memory_order_relaxed); }
+    /** Latest coherent snapshot for the UI. All four values belong to the same
+        publication and are never a mix of two different updates. */
+    Reading getReading() const noexcept;
+
+    /** Convenience accessors over getReading() (used by the meter UI and
+        tests). hasValue() == false means "no trustworthy Integrated value yet"
+        and getIntegratedLufs() must not be displayed. */
+    bool hasValue() const noexcept { return getReading().hasIntegrated; }
+    double getIntegratedLufs() const noexcept { return getReading().integrated; }
 
 private:
     void run() override;
     void publish();
+
+    /** Single-writer / multi-reader coherent publication. The writer (worker
+        thread) is the only thread that ever mutates the snapshot; the reader
+        (UI thread) retries if it observes a write in progress. */
+    void storeReading (const Reading&) noexcept;
+    Reading loadReading() const noexcept;
 
     LoudnessMeter meter_;
     juce::AbstractFifo fifo_ { 1 };
@@ -60,8 +83,20 @@ private:
 
     std::atomic<bool> resetRequested_ { false };
     std::atomic<bool> resetDiscardQueued_ { true };
-    std::atomic<bool> hasValue_ { false };
-    std::atomic<double> value_ { 0.0 };
+
+    // Coherent snapshot. The payload fields are atomic so concurrent reads and
+    // writes are free of data races; sequence_ makes a multi-field read
+    // consistent (a seqlock). Payload accesses are relaxed, ordered by the
+    // release/acquire fences around sequence_. See ADR 0008.
+    std::atomic<unsigned long long> sequence_ { 0 };
+    std::atomic<bool>   hasIntegrated_ { false };
+    std::atomic<double> integrated_ { 0.0 };
+    std::atomic<bool>   hasMomentary_ { false };
+    std::atomic<double> momentary_ { 0.0 };
+    std::atomic<bool>   hasShortTerm_ { false };
+    std::atomic<double> shortTerm_ { 0.0 };
+    std::atomic<bool>   hasTruePeak_ { false };
+    std::atomic<double> truePeak_ { 0.0 };
 
     static constexpr double bufferSeconds = 4.0;
 

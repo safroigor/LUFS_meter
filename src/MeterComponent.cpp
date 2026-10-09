@@ -21,6 +21,20 @@ namespace
         constexpr double tickStep = 6.0;        // LUFS between scale labels
     }
 
+    // Shared typography and spacing for the secondary readouts (TP, LS, LM),
+    // used identically in both orientations: values are deliberately larger
+    // than their labels, and each label sits close to its own value.
+    namespace Readout
+    {
+        constexpr float labelFontHeight = 14.0f;
+        constexpr float valueFontHeight = 22.0f;
+        constexpr int   labelGap = 6;   // label -> value, horizontal row
+        constexpr int   itemGap  = 18;  // group -> group, horizontal row
+        constexpr int   lineGap  = 2;   // label line -> value line, vertical
+        constexpr int   groupGap = 18;  // group -> group, vertical
+        constexpr int   horizontalTopInset = 1; // row top -> first text line
+    }
+
     const char* const modeLabel = "LUFS-I";
 
     float proportion (double value)
@@ -61,6 +75,19 @@ namespace
         return hasValue ? juce::String (value, 1) : juce::String ("-");
     }
 
+    // An em dash (U+2014) for an unavailable secondary measurement. Encoded as
+    // UTF-8 bytes so the source file's encoding cannot corrupt it.
+    const juce::String& placeholderText()
+    {
+        static const juce::String dash (juce::CharPointer_UTF8 ("\xe2\x80\x94"));
+        return dash;
+    }
+
+    juce::String formatSecondary (bool hasValue, double value)
+    {
+        return hasValue ? juce::String (value, 1) : placeholderText();
+    }
+
     juce::String tickText (double value)
     {
         // Magnitudes only: repeating minus signs beside a negative reading
@@ -81,7 +108,28 @@ namespace
 
     int textWidth (const juce::Font& font, const juce::String& text)
     {
-        return juce::GlyphArrangement::getStringWidth (font, text);
+        return (int) juce::GlyphArrangement::getStringWidth (font, text);
+    }
+
+    /** Vertical shift that moves `text` so its *visual* (ink) centre lands on
+        the centre of the drawing rect. JUCE vertically centres the font's
+        ascent/descent line box; for digit-only strings (no descenders) the
+        visible digits then sit below the centre. We measure a digit's real ink
+        centre from the typeface (normalised to point size 1.0) and add the
+        font's line-box offset. */
+    float glyphCentreShift (const juce::Font& font, const juce::String& text)
+    {
+        juce::ignoreUnused (text);
+
+        if (auto typeface = font.getTypefacePtr())
+            if (auto glyph = typeface->getNominalGlyphForCodepoint ('0'))
+            {
+                const float inkCentre = typeface->getGlyphBounds ((int) *glyph)
+                                            .getCentreY() * font.getHeightInPoints();
+                return (font.getAscent() - font.getDescent()) * 0.5f + inkCentre;
+            }
+
+        return 0.0f;
     }
 
     /** Picks a tick step (from `Layout::tickStep` upward) that keeps at least
@@ -131,22 +179,33 @@ void MeterComponent::setSettings (const MeterSettings& s)
 
 void MeterComponent::paint (juce::Graphics& g)
 {
-    const bool hasValue = engine_.hasValue();
-    const double value = roundToDisplay (engine_.getIntegratedLufs());
+    const auto reading = engine_.getReading();
 
     if (settings_.orientation == MeterOrientation::horizontal)
-        paintHorizontal (g, getLocalBounds(), hasValue, value);
+        paintHorizontal (g, getLocalBounds(), reading);
     else
-        paintVertical (g, getLocalBounds(), hasValue, value);
+        paintVertical (g, getLocalBounds(), reading);
 }
 
 void MeterComponent::paintHorizontal (juce::Graphics& g, juce::Rectangle<int> area,
-                                      bool hasValue, double value)
+                                      const MeasurementEngine::Reading& reading)
 {
     const auto s = settings_.sanitised();
     const bool compact = s.size == MeterSizeMode::compact;
 
+    const bool hasValue = reading.hasIntegrated;
+    const double value = roundToDisplay (reading.integrated);
+
     auto r = area.reduced (Layout::marginX, Layout::marginY);
+
+    // The compact secondary readouts sit as a row above the segmented scale.
+    // The row is drawn below, centred on the segmented scale's own horizontal
+    // bounds, so it stays aligned with the meter at any window width.
+    juce::Rectangle<int> readoutArea;
+    const bool showReadouts = r.getHeight() > secondaryRowHeight + 8;
+
+    if (showReadouts)
+        readoutArea = r.removeFromTop (secondaryRowHeight);
 
     const juce::Font valueFont = MeterTheme::mediumFont (compact ? 46.0f : 32.0f);
     const float labelFont = compact ? 14.0f : 13.0f;
@@ -170,6 +229,11 @@ void MeterComponent::paintHorizontal (juce::Graphics& g, juce::Rectangle<int> ar
 
     auto valueArea = r.removeFromRight (valueW);
     auto barArea = r;
+
+    // Centre the whole secondary group on the segmented scale's centre; the
+    // group stays inside the full row so it cannot clip at small widths.
+    if (showReadouts)
+        paintReadouts (g, readoutArea, reading, true, barArea.getCentreX());
 
     // Shared visual centreline: label, meter and reading all centre on this Y.
     // The scale ruler/ticks are an independent group below the meter.
@@ -237,15 +301,21 @@ void MeterComponent::paintHorizontal (juce::Graphics& g, juce::Rectangle<int> ar
 
     g.setColour (hasValue ? colourForZone (s.zoneForValue (value), s) : MeterTheme::textDim);
     g.setFont (valueFont);
-    g.drawFittedText (valueText, rowAtCentreY (valueArea, centreY, (int) std::lround (valueFont.getHeight()) + 6),
+    // Align the digits' visual (ink) centre with the meter's centre, not the
+    // font's ascent/descent line box.
+    const float valueCentreY = centreY - glyphCentreShift (valueFont, valueText);
+    g.drawFittedText (valueText, rowAtCentreY (valueArea, valueCentreY, (int) std::lround (valueFont.getHeight()) + 6),
                       juce::Justification::centredRight, 1, 0.6f);
 }
 
 void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area,
-                                    bool hasValue, double value)
+                                    const MeasurementEngine::Reading& reading)
 {
     const auto s = settings_.sanitised();
     const bool compact = s.size == MeterSizeMode::compact;
+
+    const bool hasValue = reading.hasIntegrated;
+    const double value = roundToDisplay (reading.integrated);
 
     auto r = area.reduced (Layout::marginX, Layout::marginY);
 
@@ -333,5 +403,139 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
         g.setColour (MeterTheme::textDim);
         g.setFont (MeterTheme::regularFont ((float) labelFont));
         g.drawText (modeLabel, labelArea, juce::Justification::centred, false);
+    }
+
+    // Secondary readouts in a compact column to the left of the segmented meter.
+    // The meter keeps its centred position; the column uses the empty space that
+    // already exists to its left.
+    const int readoutGap = 6;
+    const int readoutWidth = juce::jmax (0, (int) std::lround (bar.getX()) - readoutGap
+                                              - meterArea.getX());
+    paintReadouts (g, juce::Rectangle<int> (meterArea.getX(), meterArea.getY(),
+                                            readoutWidth, meterArea.getHeight()),
+                   reading, false, 0);
+}
+
+void MeterComponent::paintReadouts (juce::Graphics& g, juce::Rectangle<int> area,
+                                    const MeasurementEngine::Reading& reading,
+                                    bool horizontalRow, int referenceCentreX)
+{
+    if (area.getWidth() <= 0 || area.getHeight() <= 0)
+        return;
+
+    struct Item
+    {
+        const char* label;
+        juce::String value;
+        juce::Colour colour;
+    };
+
+    const auto normal = MeterTheme::textSecondary;
+    const auto red = juce::Colour (settings_.redColour);
+
+    // Display order is TP, LS, LM. LS maps to the Short-Term measurement and LM
+    // to the Momentary measurement; only the display labels differ from the
+    // internal names.
+    const Item items[] =
+    {
+        { "TP", formatSecondary (reading.hasTruePeak,  reading.truePeak),
+                (reading.hasTruePeak && reading.truePeak >= 0.0) ? red : normal },
+        { "LS", formatSecondary (reading.hasShortTerm,  reading.shortTerm), normal },
+        { "LM", formatSecondary (reading.hasMomentary,  reading.momentary), normal },
+    };
+
+    constexpr int count = 3;
+
+    const juce::Font labelFont = MeterTheme::regularFont (Readout::labelFontHeight);
+    const juce::Font valueFont = MeterTheme::mediumFont (Readout::valueFontHeight);
+
+    if (horizontalRow)
+    {
+        // One line per group: a smaller label followed by a larger value, all
+        // vertically centred on a shared centreline. The whole group is centred
+        // horizontally within `area` (which is the segmented scale's x-range).
+        // Hug the top of the reserved row so the space above the readouts is no
+        // larger than the space below the scale, leaving a clear, balanced gap
+        // between the readout row and the meter.
+        const int valueRowH = (int) std::lround (valueFont.getHeight()) + 4;
+        const float centreY = (float) area.getY() + (float) valueRowH * 0.5f
+                                  + (float) Readout::horizontalTopInset;
+        const int valueW = textWidth (valueFont, "-000.0");
+
+        int totalW = Readout::itemGap * (count - 1);
+
+        for (int i = 0; i < count; ++i)
+            totalW += textWidth (labelFont, items[i].label) + Readout::labelGap + valueW;
+
+        // Centre the group on the scale's centre, but never let it leave `area`.
+        const int maxX = juce::jmax (area.getX(), area.getRight() - totalW);
+        int x = juce::jlimit (area.getX(), maxX, referenceCentreX - totalW / 2);
+
+        for (int i = 0; i < count; ++i)
+        {
+            const int labelW = textWidth (labelFont, items[i].label);
+
+            g.setFont (labelFont);
+            g.setColour (MeterTheme::textDim);
+            g.drawFittedText (items[i].label,
+                              rowAtCentreY ({ x, area.getY(), labelW, area.getHeight() },
+                                            centreY, (int) std::lround (labelFont.getHeight()) + 2),
+                              juce::Justification::centredLeft, 1, 0.7f);
+
+            g.setFont (valueFont);
+            g.setColour (items[i].colour);
+            g.drawFittedText (items[i].value,
+                              rowAtCentreY ({ x + labelW + Readout::labelGap, area.getY(),
+                                              valueW, area.getHeight() },
+                                            centreY, (int) std::lround (valueFont.getHeight()) + 4),
+                              juce::Justification::centredLeft, 1, 0.8f);
+
+            x += labelW + Readout::labelGap + valueW + Readout::itemGap;
+        }
+
+        return;
+    }
+
+    // Vertical: three compact two-line groups (label directly above a larger
+    // value), stacked TP, LS, LM and centred in the left-hand column. The line
+    // heights come from the fonts themselves rather than being stretched to fill
+    // the column, so each label stays visually attached to its own value; the
+    // whole stack is scaled down only if it would not otherwise fit.
+    const float naturalLabel    = (float) labelFont.getHeight();
+    const float naturalValue    = (float) valueFont.getHeight();
+    const float naturalLineGap  = (float) Readout::lineGap;
+    const float naturalGroupGap = (float) Readout::groupGap;
+    const float naturalUnit     = naturalLabel + naturalLineGap + naturalValue;
+    const float naturalTotal    = naturalUnit * count + naturalGroupGap * (count - 1);
+
+    const float k = naturalTotal > (float) area.getHeight()
+                        ? (float) area.getHeight() / naturalTotal
+                        : 1.0f;
+
+    const int labelLine = (int) std::lround (naturalLabel * k);
+    const int valueLine = (int) std::lround (naturalValue * k);
+    const int lineGap   = (int) std::lround (naturalLineGap * k);
+    const int groupGap  = (int) std::lround (naturalGroupGap * k);
+    const int groupH    = labelLine + lineGap + valueLine;
+    const int totalH    = groupH * count + groupGap * (count - 1);
+
+    int y = area.getY() + juce::jmax (0, (area.getHeight() - totalH) / 2);
+
+    for (int i = 0; i < count; ++i)
+    {
+        g.setFont (labelFont);
+        g.setColour (MeterTheme::textDim);
+        g.drawFittedText (items[i].label,
+                          { area.getX(), y, area.getWidth(), labelLine },
+                          juce::Justification::centred, 1, 0.7f);
+
+        g.setFont (valueFont);
+        g.setColour (items[i].colour);
+        g.drawFittedText (items[i].value,
+                          { area.getX(), y + labelLine + lineGap,
+                            area.getWidth(), valueLine },
+                          juce::Justification::centred, 1, 0.8f);
+
+        y += groupH + groupGap;
     }
 }

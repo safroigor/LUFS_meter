@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(LUFSMeter VERSION 1.1.0 LANGUAGES C CXX)
+project(LUFSMeter VERSION 1.2.0 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 # Global settings
@@ -47,8 +47,8 @@ juce_add_plugin(LUFSMeter
     PLUGIN_MANUFACTURER_CODE  Safr
     PLUGIN_CODE               Lufs
     PRODUCT_NAME              "LUFS Meter"
-    DESCRIPTION               "Accurate Integrated LUFS meter (EBU R128 / ITU-R BS.1770)"
-    VERSION                   1.1.0
+    DESCRIPTION               "Accurate Loudness and True Peak meter (EBU R128 / ITU-R BS.1770)"
+    VERSION                   1.2.0
     FORMATS                   VST3
     IS_SYNTH                  FALSE
     NEEDS_MIDI_INPUT          FALSE
@@ -91,4 +91,13 @@ include(CTest)
 
 if(BUILD_TESTING)
     add_subdirectory(tests)
+endif()
+
+# ---------------------------------------------------------------------------
+# Offscreen UI preview tool (development only, off by default)
+# ---------------------------------------------------------------------------
+option(LUFSMETER_BUILD_PREVIEW "Build the offscreen UI preview tool" OFF)
+
+if(LUFSMETER_BUILD_PREVIEW)
+    add_subdirectory(tools/preview)
 endif()

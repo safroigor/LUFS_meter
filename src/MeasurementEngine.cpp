@@ -46,8 +46,7 @@ void MeasurementEngine::release()
     channels_ = 0;
 
     resetRequested_.store (false);
-    hasValue_.store (false);
-    value_.store (0.0);
+    storeReading ({});
 }
 
 void MeasurementEngine::pushBlock (const juce::AudioBuffer<float>& buffer, int numSamples) noexcept
@@ -115,8 +114,7 @@ void MeasurementEngine::run()
             }
 
             meter_.reset();
-            hasValue_.store (false, std::memory_order_relaxed);
-            value_.store (0.0, std::memory_order_relaxed);
+            storeReading ({});
         }
 
         const int ready = fifo_.getNumReady();
@@ -144,15 +142,66 @@ void MeasurementEngine::run()
 
 void MeasurementEngine::publish()
 {
+    Reading r;
     double v = 0.0;
 
-    if (meter_.getIntegratedLufs (v))
+    if (meter_.getIntegratedLufs (v)) { r.hasIntegrated = true; r.integrated = v; }
+    if (meter_.getMomentaryLufs (v))  { r.hasMomentary  = true; r.momentary  = v; }
+    if (meter_.getShortTermLufs (v))  { r.hasShortTerm  = true; r.shortTerm  = v; }
+    if (meter_.getTruePeakDbtp (v))   { r.hasTruePeak   = true; r.truePeak   = v; }
+
+    storeReading (r);
+}
+
+void MeasurementEngine::storeReading (const Reading& r) noexcept
+{
+    const auto start = sequence_.load (std::memory_order_relaxed);
+    sequence_.store (start + 1, std::memory_order_relaxed); // odd: writing
+    std::atomic_thread_fence (std::memory_order_release);
+
+    hasIntegrated_.store (r.hasIntegrated, std::memory_order_relaxed);
+    integrated_.store    (r.integrated,    std::memory_order_relaxed);
+    hasMomentary_.store  (r.hasMomentary,  std::memory_order_relaxed);
+    momentary_.store     (r.momentary,     std::memory_order_relaxed);
+    hasShortTerm_.store  (r.hasShortTerm,  std::memory_order_relaxed);
+    shortTerm_.store     (r.shortTerm,     std::memory_order_relaxed);
+    hasTruePeak_.store   (r.hasTruePeak,   std::memory_order_relaxed);
+    truePeak_.store      (r.truePeak,      std::memory_order_relaxed);
+
+    std::atomic_thread_fence (std::memory_order_release);
+    sequence_.store (start + 2, std::memory_order_relaxed); // even: done
+}
+
+MeasurementEngine::Reading MeasurementEngine::loadReading() const noexcept
+{
+    Reading r;
+
+    for (;;)
     {
-        value_.store (v, std::memory_order_relaxed);
-        hasValue_.store (true, std::memory_order_relaxed);
+        const auto s1 = sequence_.load (std::memory_order_acquire);
+
+        if ((s1 & 1ull) != 0ull)
+            continue; // a write is in progress
+
+        r.hasIntegrated = hasIntegrated_.load (std::memory_order_relaxed);
+        r.integrated    = integrated_.load    (std::memory_order_relaxed);
+        r.hasMomentary  = hasMomentary_.load  (std::memory_order_relaxed);
+        r.momentary     = momentary_.load     (std::memory_order_relaxed);
+        r.hasShortTerm  = hasShortTerm_.load  (std::memory_order_relaxed);
+        r.shortTerm     = shortTerm_.load     (std::memory_order_relaxed);
+        r.hasTruePeak   = hasTruePeak_.load   (std::memory_order_relaxed);
+        r.truePeak      = truePeak_.load      (std::memory_order_relaxed);
+
+        std::atomic_thread_fence (std::memory_order_acquire);
+
+        if (s1 == sequence_.load (std::memory_order_relaxed))
+            break; // no write happened during the read
     }
-    else
-    {
-        hasValue_.store (false, std::memory_order_relaxed);
-    }
+
+    return r;
+}
+
+MeasurementEngine::Reading MeasurementEngine::getReading() const noexcept
+{
+    return loadReading();
 }

@@ -1,32 +1,35 @@
 # LUFS Meter
 
-A minimal Windows x64 VST3 plugin that measures **Integrated Loudness** according
-to ITU-R BS.1770 and EBU R128, and displays the value together with a compact
-bar scale.
+A minimal Windows x64 VST3 plugin that measures **Integrated**, **Momentary** and
+**Short-Term Loudness** and **True Peak** according to ITU-R BS.1770 and
+EBU R 128, and displays them together with a compact bar scale.
 
 The plugin is a **measurement device**. It never modifies the incoming audio
 signal.
 
-> **Status: v1.1.0.** Redesigned UI (segmented zone-coloured meter, vector icons,
-> HiDPI settings) and a transport-based measurement lifecycle. See
-> [docs/testing.md](docs/testing.md) for the exact verified state and offscreen
-> [UI previews](docs/testing.md#ui-previews-offscreen).
+> **Status: v1.2.0.** Adds Momentary (M), Short-Term (S) and True Peak (TP)
+> numeric readouts alongside the existing Integrated (LUFS-I) meter. See
+> [docs/testing.md](docs/testing.md) for the exact verified state.
 
 ## Features
 
 - Integrated Loudness (LUFS-I), rounded to 0.1 LU, with a large focal reading
   coloured by the active zone.
+- True Peak (TP), Short-Term (LS) and Momentary (LM) numeric readouts,
+  subordinate to the Integrated value: a row above the scale in horizontal
+  orientation, and stacked two-line groups to the left of the scale in vertical
+  orientation.
 - Segmented horizontal / vertical scale with configurable green and red zones.
 - Horizontal / vertical orientation switch.
 - Transport-driven measurement pass: silence during playback never clears the
   value; play-after-stop, seek and loop start a new pass.
 - Reset button in the main interface; Slim / compact display modes.
 - Optional `LUFS-I` label and scale marks.
-- Explicit "no valid value yet" state (never a fake `0 LUFS`).
+- Explicit "no valid value yet" state (never a fake `0 LUFS` / `0 dBTP`).
 - Non-blocking UI updates.
 
-Out of scope for v1: True Peak, Momentary/Short-term LUFS, dynamics processing,
-loudness history graphs, target levels, extra DSP.
+Out of scope: Loudness Range (LRA), dynamics processing, loudness history
+graphs, target levels, extra DSP.
 
 ## Plugin identity
 
@@ -36,7 +39,7 @@ loudness history graphs, target levels, extra DSP.
 | Manufacturer code | `Safr` |
 | Plugin code | `Lufs` |
 | Bundle identifier | `com.SafroAudio.LUFSMeter` |
-| Product version | 1.1.0 |
+| Product version | 1.2.0 |
 | Format | VST3, Windows x64 |
 
 ## Requirements

@@ -2,6 +2,47 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.0] - 2026-10-09
+
+### Added
+- **Momentary Loudness (M)** (400 ms) and **Short-Term Loudness (S)** (3 s)
+  numeric readouts, computed by libebur128 from the same K-weighting pass as
+  Integrated. Both are ungated, as the standards require.
+- **True Peak (TP)** in dBTP, using libebur128's oversampling interpolator and
+  reporting the maximum across all channels for the current pass.
+- Compact numeric-only secondary readouts, in the display order **TP, LS, LM**
+  (True Peak, Short-Term, Momentary): a single row above the scale in horizontal
+  orientation and three stacked two-line groups to the left of the scale in
+  vertical orientation. Numeric values are larger and heavier than their
+  abbreviations. True Peak is shown in red at or above `0.0 dBTP`; unavailable
+  values use the em-dash placeholder `—`.
+- Coherent reading snapshot published from the measurement thread to the UI via
+  a seqlock over atomic fields (ADR 0008); the UI never sees a mix of two
+  updates.
+- Tests for M/S/TP: reference levels, warm-up before the window is full, silent
+  windows, rolling transitions, ungated low-level signals, inter-sample true
+  peak, cross-channel maximum, reset, sample rates, block sizes, and concurrent
+  snapshot reads.
+
+### Changed
+- `LoudnessMeter` now enables `EBUR128_MODE_I | EBUR128_MODE_S |
+  EBUR128_MODE_TRUE_PEAK` and exposes M/S/TP getters, with warm-up gating and a
+  documented `-120 LUFS` silence floor for M/S.
+- Horizontal preferred/minimum height and width increased, and vertical
+  preferred/minimum width increased, to fit the larger secondary readouts; the
+  primary composition is otherwise unchanged.
+- Secondary readout polish: labels are now TP, LS, LM. The horizontal row hugs
+  the top of its band (removing dead space above), is centred on the segmented
+  scale, and keeps a clear gap above it. Each vertical label sits directly above
+  its value, with a wider gap between the three groups. The large LUFS-I reading
+  is aligned to the meter's visual centre using the digit glyph ink bounds.
+- Plugin version bumped to `1.2.0`.
+
+### Documentation
+- Updated measurement, architecture, testing, README and ADR 0002; added ADR
+  0008 for the coherent snapshot. Removed the "out of scope" statements for
+  Momentary, Short-Term and True Peak.
+
 ## [1.1.0] - 2026-10-09
 
 ### Added

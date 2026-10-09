@@ -6,8 +6,11 @@
 #include "TransportTracker.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cmath>
 #include <functional>
 #include <limits>
+#include <thread>
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -66,6 +69,52 @@ namespace
 
         double value = 0.0;
         return meter.getIntegratedLufs (value) ? value : kNoValue;
+    }
+
+    /** Feeds interleaved data into an existing prepared meter in chunks. */
+    void feedInterleaved (LoudnessMeter& meter, int channels,
+                          const std::vector<float>& data, int chunkFrames = 1024)
+    {
+        const int totalFrames = (int) (data.size() / (size_t) channels);
+
+        for (int pos = 0; pos < totalFrames; pos += chunkFrames)
+        {
+            const int n = std::min (chunkFrames, totalFrames - pos);
+            meter.processInterleaved (data.data() + (size_t) pos * (size_t) channels,
+                                      (unsigned long) n);
+        }
+    }
+
+    /** Interleaved sine whose phase is offset, identical in every channel. */
+    std::vector<float> makeSinePhase (int channels, double sampleRate, double seconds,
+                                      double frequency, double peakDbfs, double phaseRadians)
+    {
+        const int frames = (int) std::llround (sampleRate * seconds);
+        std::vector<float> data ((size_t) frames * (size_t) channels);
+        const double amplitude = std::pow (10.0, peakDbfs / 20.0);
+
+        for (int i = 0; i < frames; ++i)
+        {
+            const auto s = (float) (amplitude * std::sin (2.0 * pi * frequency
+                                                              * (double) i / sampleRate
+                                                          + phaseRadians));
+
+            for (int c = 0; c < channels; ++c)
+                data[(size_t) i * (size_t) channels + (size_t) c] = s;
+        }
+
+        return data;
+    }
+
+    /** Maximum absolute sample value in an interleaved buffer. */
+    double samplePeak (const std::vector<float>& data)
+    {
+        double peak = 0.0;
+
+        for (float s : data)
+            peak = std::max (peak, (double) std::abs (s));
+
+        return peak;
     }
 
     // -----------------------------------------------------------------------
@@ -256,6 +305,297 @@ namespace
         }
 
         TEST_CHECK_NEAR (measure (2, 48000.0, data), -23.0, 0.1);
+    }
+
+    // -----------------------------------------------------------------------
+    // Momentary / Short-Term / True Peak
+    // -----------------------------------------------------------------------
+
+    void testMomentaryReference()
+    {
+        std::printf ("testMomentaryReference\n");
+
+        LoudnessMeter m;
+        TEST_CHECK (m.prepare (2, 48000));
+        feedInterleaved (m, 2, makeSine (2, 48000.0, 5.0, 1000.0, -23.0));
+
+        double v = 0.0;
+        TEST_CHECK (m.getMomentaryLufs (v));
+        TEST_CHECK_NEAR (v, -23.0, 0.1);
+    }
+
+    void testMomentaryUnavailableBeforeWindow()
+    {
+        std::printf ("testMomentaryUnavailableBeforeWindow\n");
+
+        LoudnessMeter m;
+        TEST_CHECK (m.prepare (2, 48000));
+
+        // Less than one 400 ms window -> no Momentary value yet.
+        feedInterleaved (m, 2, makeSine (2, 48000.0, 0.2, 1000.0, -23.0));
+
+        double v = 0.0;
+        TEST_CHECK (! m.getMomentaryLufs (v));
+    }
+
+    void testMomentarySilentWindow()
+    {
+        std::printf ("testMomentarySilentWindow\n");
+
+        LoudnessMeter m;
+        TEST_CHECK (m.prepare (2, 48000));
+        feedInterleaved (m, 2, makeSine (2, 48000.0, 10.0, 1000.0, -23.0));
+
+        double v = 0.0;
+        TEST_CHECK (m.getMomentaryLufs (v));
+
+        // A fully silent 400 ms window has no meaningful loudness and must be
+        // reported as unavailable, but must not disturb the integrated result.
+        feedInterleaved (m, 2, makeSilence (2, 48000.0, 0.5));
+        TEST_CHECK (! m.getMomentaryLufs (v));
+
+        double i = 0.0;
+        TEST_CHECK (m.getIntegratedLufs (i));
+        TEST_CHECK_NEAR (i, -23.0, 0.15);
+    }
+
+    void testShortTermReference()
+    {
+        std::printf ("testShortTermReference\n");
+
+        LoudnessMeter m;
+        TEST_CHECK (m.prepare (2, 48000));
+        feedInterleaved (m, 2, makeSine (2, 48000.0, 5.0, 1000.0, -23.0));
+
+        double v = 0.0;
+        TEST_CHECK (m.getShortTermLufs (v));
+        TEST_CHECK_NEAR (v, -23.0, 0.1);
+    }
+
+    void testShortTermUnavailableBeforeWindow()
+    {
+        std::printf ("testShortTermUnavailableBeforeWindow\n");
+
+        LoudnessMeter m;
+        TEST_CHECK (m.prepare (2, 48000));
+
+        // 2 s is not enough for the 3 s window.
+        feedInterleaved (m, 2, makeSine (2, 48000.0, 2.0, 1000.0, -23.0));
+
+        double v = 0.0;
+        TEST_CHECK (! m.getShortTermLufs (v));
+
+        // Cross the 3 s boundary.
+        feedInterleaved (m, 2, makeSine (2, 48000.0, 1.5, 1000.0, -23.0));
+        TEST_CHECK (m.getShortTermLufs (v));
+        TEST_CHECK_NEAR (v, -23.0, 0.1);
+    }
+
+    void testShortTermRollingTransition()
+    {
+        std::printf ("testShortTermRollingTransition\n");
+
+        LoudnessMeter m;
+        TEST_CHECK (m.prepare (2, 48000));
+        feedInterleaved (m, 2, makeSine (2, 48000.0, 5.0, 1000.0, -23.0));
+
+        double v = 0.0;
+        TEST_CHECK (m.getShortTermLufs (v));
+        TEST_CHECK_NEAR (v, -23.0, 0.1);
+
+        // After a full 3 s at the new level the rolling window is entirely -33.
+        feedInterleaved (m, 2, makeSine (2, 48000.0, 5.0, 1000.0, -33.0));
+        TEST_CHECK (m.getShortTermLufs (v));
+        TEST_CHECK_NEAR (v, -33.0, 0.1);
+    }
+
+    void testShortTermSilenceAfterActive()
+    {
+        std::printf ("testShortTermSilenceAfterActive\n");
+
+        LoudnessMeter m;
+        TEST_CHECK (m.prepare (2, 48000));
+        feedInterleaved (m, 2, makeSine (2, 48000.0, 5.0, 1000.0, -23.0));
+
+        // One second of silence: the 3 s window still contains audio, so S stays
+        // valid and simply drops.
+        feedInterleaved (m, 2, makeSilence (2, 48000.0, 1.0));
+
+        double v = 0.0;
+        TEST_CHECK (m.getShortTermLufs (v));
+        TEST_CHECK (v < -23.0);
+
+        // A fully silent 3 s window -> unavailable, without resetting anything.
+        feedInterleaved (m, 2, makeSilence (2, 48000.0, 2.5));
+        TEST_CHECK (! m.getShortTermLufs (v));
+    }
+
+    void testShortTermLowLevelUngated()
+    {
+        std::printf ("testShortTermLowLevelUngated\n");
+
+        LoudnessMeter m;
+        TEST_CHECK (m.prepare (2, 48000));
+        feedInterleaved (m, 2, makeSine (2, 48000.0, 5.0, 1000.0, -75.0));
+
+        // Short-term is ungated, so it keeps a value below the -70 LUFS
+        // integrated gate.
+        double s = 0.0;
+        TEST_CHECK (m.getShortTermLufs (s));
+        TEST_CHECK_NEAR (s, -75.0, 0.1);
+
+        double i = 0.0;
+        TEST_CHECK (! m.getIntegratedLufs (i));
+    }
+
+    void testMomentaryShortTermSampleRates()
+    {
+        std::printf ("testMomentaryShortTermSampleRates\n");
+
+        for (double sr : { 44100.0, 88200.0, 96000.0, 192000.0 })
+        {
+            LoudnessMeter m;
+            TEST_CHECK (m.prepare (2, (unsigned long) sr));
+            feedInterleaved (m, 2, makeSine (2, sr, 5.0, 1000.0, -23.0));
+
+            double mv = 0.0, sv = 0.0;
+            TEST_CHECK (m.getMomentaryLufs (mv));
+            TEST_CHECK (m.getShortTermLufs (sv));
+            TEST_CHECK_NEAR (mv, -23.0, 0.1);
+            TEST_CHECK_NEAR (sv, -23.0, 0.1);
+        }
+    }
+
+    void testMomentaryShortTermBlockSize()
+    {
+        std::printf ("testMomentaryShortTermBlockSize\n");
+
+        const auto data = makeSine (2, 48000.0, 5.0, 1000.0, -23.0);
+
+        for (int chunk : { 1, 512, 65536 })
+        {
+            LoudnessMeter m;
+            TEST_CHECK (m.prepare (2, 48000));
+            feedInterleaved (m, 2, data, chunk);
+
+            double mv = 0.0, sv = 0.0;
+            TEST_CHECK (m.getMomentaryLufs (mv));
+            TEST_CHECK (m.getShortTermLufs (sv));
+            TEST_CHECK_NEAR (mv, -23.0, 0.1);
+            TEST_CHECK_NEAR (sv, -23.0, 0.1);
+        }
+    }
+
+    void testMomentaryShortTermMono()
+    {
+        std::printf ("testMomentaryShortTermMono\n");
+
+        LoudnessMeter m;
+        TEST_CHECK (m.prepare (1, 48000));
+        feedInterleaved (m, 1, makeSine (1, 48000.0, 5.0, 1000.0, -23.0));
+
+        double mv = 0.0, sv = 0.0;
+        TEST_CHECK (m.getMomentaryLufs (mv));
+        TEST_CHECK (m.getShortTermLufs (sv));
+        TEST_CHECK_NEAR (mv, -26.0, 0.15); // single channel: half the energy
+        TEST_CHECK_NEAR (sv, -26.0, 0.15);
+    }
+
+    void testTruePeakInterSample()
+    {
+        std::printf ("testTruePeakInterSample\n");
+
+        const double sr = 48000.0;
+        const int frames = (int) sr;
+
+        // fs/4 sine with a 45 degree phase: every sample is +/- A/sqrt(2)
+        // (sample peak -3.01 dBFS) while the reconstructed peak is A (0 dBTP).
+        auto data = makeSinePhase (2, sr, 1.0, sr / 4.0, 0.0, pi / 4.0);
+
+        const double samplePeakDb = 20.0 * std::log10 (samplePeak (data));
+        TEST_CHECK_NEAR (samplePeakDb, -3.01, 0.1);
+
+        LoudnessMeter m;
+        TEST_CHECK (m.prepare (2, 48000));
+        feedInterleaved (m, 2, data);
+
+        double tp = 0.0;
+        TEST_CHECK (m.getTruePeakDbtp (tp));
+
+        // True peak clearly exceeds the sample peak and is close to 0 dBTP.
+        TEST_CHECK (tp > samplePeakDb + 2.0);
+        TEST_CHECK_NEAR (tp, 0.0, 0.5);
+
+        juce::ignoreUnused (frames);
+    }
+
+    void testTruePeakSampleRates()
+    {
+        std::printf ("testTruePeakSampleRates\n");
+
+        // libebur128 oversamples 4x below 96 kHz, 2x for 96-192 kHz and not at
+        // all at >= 192 kHz. An fs/4 sine reaches its true peak exactly halfway
+        // between samples, so the 2x/4x interpolators recover it; at 192 kHz the
+        // reported "true peak" is the sample peak (-3.01 dBFS).
+        for (double sr : { 44100.0, 96000.0, 192000.0 })
+        {
+            auto data = makeSinePhase (2, sr, 1.0, sr / 4.0, 0.0, pi / 4.0);
+
+            LoudnessMeter m;
+            TEST_CHECK (m.prepare (2, (unsigned long) sr));
+            feedInterleaved (m, 2, data);
+
+            double tp = 0.0;
+            TEST_CHECK (m.getTruePeakDbtp (tp));
+
+            if (sr < 192000.0)
+                TEST_CHECK_NEAR (tp, 0.0, 0.5);
+            else
+                TEST_CHECK_NEAR (tp, -3.01, 0.1);
+        }
+    }
+
+    void testTruePeakAcrossChannels()
+    {
+        std::printf ("testTruePeakAcrossChannels\n");
+
+        const double sr = 48000.0;
+        const int frames = (int) sr;
+        const auto tone = makeSinePhase (2, sr, 1.0, sr / 4.0, -6.02, pi / 4.0);
+
+        // Left silent, right carries the tone: the reported peak is the maximum
+        // across channels, i.e. the right channel.
+        std::vector<float> data ((size_t) frames * 2, 0.0f);
+
+        for (int i = 0; i < frames; ++i)
+            data[(size_t) i * 2 + 1] = tone[(size_t) i * 2 + 1];
+
+        LoudnessMeter m;
+        TEST_CHECK (m.prepare (2, 48000));
+        feedInterleaved (m, 2, data);
+
+        double tp = 0.0;
+        TEST_CHECK (m.getTruePeakDbtp (tp));
+        TEST_CHECK_NEAR (tp, -6.02, 0.5);
+    }
+
+    void testTruePeakSilenceAndReset()
+    {
+        std::printf ("testTruePeakSilenceAndReset\n");
+
+        LoudnessMeter m;
+        TEST_CHECK (m.prepare (2, 48000));
+
+        double tp = 0.0;
+        TEST_CHECK (! m.getTruePeakDbtp (tp)); // digital silence -> unavailable
+
+        feedInterleaved (m, 2, makeSine (2, 48000.0, 1.0, 1000.0, -6.0));
+        TEST_CHECK (m.getTruePeakDbtp (tp));
+        TEST_CHECK (tp > -7.0);
+
+        // Reset must clear the accumulated maximum.
+        TEST_CHECK (m.reset());
+        TEST_CHECK (! m.getTruePeakDbtp (tp));
     }
 
     // -----------------------------------------------------------------------
@@ -564,7 +904,81 @@ namespace
         }
 
         TEST_CHECK (waitFor ([&] { return engine.hasValue(); }, 2000));
-        TEST_CHECK_NEAR (engine.getIntegratedLufs(), -23.0, 0.1);
+
+        const auto reading = engine.getReading();
+        TEST_CHECK (reading.hasIntegrated);
+        TEST_CHECK_NEAR (reading.integrated, -23.0, 0.1);
+
+        // The 5 s tone also fills the Momentary and Short-Term windows; the
+        // true peak of a -23 dBFS sine is about -23 dBTP.
+        TEST_CHECK (reading.hasMomentary);
+        TEST_CHECK_NEAR (reading.momentary, -23.0, 0.1);
+        TEST_CHECK (reading.hasShortTerm);
+        TEST_CHECK_NEAR (reading.shortTerm, -23.0, 0.1);
+        TEST_CHECK (reading.hasTruePeak);
+        TEST_CHECK_NEAR (reading.truePeak, -23.0, 0.5);
+
+        // Manual reset clears every measurement coherently.
+        engine.requestReset (true);
+        TEST_CHECK (waitFor ([&] { return ! engine.getReading().hasIntegrated; }, 2000));
+
+        const auto cleared = engine.getReading();
+        TEST_CHECK (! cleared.hasIntegrated);
+        TEST_CHECK (! cleared.hasMomentary);
+        TEST_CHECK (! cleared.hasShortTerm);
+        TEST_CHECK (! cleared.hasTruePeak);
+
+        engine.release();
+    }
+
+    void testSnapshotConcurrentRead()
+    {
+        std::printf ("testSnapshotConcurrentRead\n");
+
+        // Stress the coherent publication: a reader thread reads the snapshot
+        // while the audio side pushes audio, and must never observe a torn
+        // (non-finite) value presented as valid.
+        MeasurementEngine engine;
+        engine.prepare (48000.0, 2);
+
+        std::atomic<bool> stop { false };
+        std::atomic<bool> torn { false };
+
+        std::thread reader ([&]
+        {
+            while (! stop.load())
+            {
+                const auto r = engine.getReading();
+
+                if ((r.hasIntegrated && ! std::isfinite (r.integrated))
+                    || (r.hasMomentary && ! std::isfinite (r.momentary))
+                    || (r.hasShortTerm && ! std::isfinite (r.shortTerm))
+                    || (r.hasTruePeak  && ! std::isfinite (r.truePeak)))
+                    torn.store (true);
+            }
+        });
+
+        const auto sine = makeSine (2, 48000.0, 3.0, 1000.0, -23.0);
+        const int channels = 2;
+        const int chunk = 512;
+        juce::AudioBuffer<float> block (channels, chunk);
+
+        for (int pos = 0; pos < 48000 * 3; pos += chunk)
+        {
+            const int n = std::min (chunk, 48000 * 3 - pos);
+
+            for (int c = 0; c < channels; ++c)
+                for (int i = 0; i < n; ++i)
+                    block.setSample (c, i, sine[(size_t) (pos + i) * (size_t) channels + (size_t) c]);
+
+            engine.pushBlock (block, n);
+            juce::Thread::sleep (1);
+        }
+
+        stop.store (true);
+        reader.join();
+
+        TEST_CHECK (! torn.load());
 
         engine.release();
     }
@@ -588,6 +1002,21 @@ int main()
     testSilenceThenSignal();
     testSilenceInMiddleKeepsValue();
     testMultipleTakesSeparatedBySilence();
+    testMomentaryReference();
+    testMomentaryUnavailableBeforeWindow();
+    testMomentarySilentWindow();
+    testShortTermReference();
+    testShortTermUnavailableBeforeWindow();
+    testShortTermRollingTransition();
+    testShortTermSilenceAfterActive();
+    testShortTermLowLevelUngated();
+    testMomentaryShortTermSampleRates();
+    testMomentaryShortTermBlockSize();
+    testMomentaryShortTermMono();
+    testTruePeakInterSample();
+    testTruePeakSampleRates();
+    testTruePeakAcrossChannels();
+    testTruePeakSilenceAndReset();
     testZoneClassification();
     testZoneSanitisation();
     testZoneBoundaryConsistency();
@@ -600,6 +1029,7 @@ int main()
     testLifecycleGapResets();
     testLifecycleWithoutPositionStillPlays();
     testEnginePipeline();
+    testSnapshotConcurrentRead();
 
     std::printf ("\n%d checks, %d failures\n", test::checkCount(), test::failureCount());
     return test::failureCount() == 0 ? 0 : 1;

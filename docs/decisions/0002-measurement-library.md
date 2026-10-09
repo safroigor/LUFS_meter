@@ -37,4 +37,8 @@ Rationale, verified from its source and documentation:
 
 ## Notes
 
-The true-peak and LRA features of the library are not used in v1.
+As of v1.2.0 the library's **true-peak** feature (`EBUR128_MODE_TRUE_PEAK`) and
+**Momentary/Short-Term** modes (`EBUR128_MODE_S`) are used as well as Integrated;
+the three measurements share one `ebur128_state` and one K-weighting pass. LRA
+remains unused. See `docs/measurement.md` and
+`docs/decisions/0008-coherent-reading-snapshot.md`.

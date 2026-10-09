@@ -9,3 +9,4 @@
 | [0005](0005-hosts-and-standard-revisions.md) | Standard revisions and host | accepted |
 | [0006](0006-session-behavior.md) | Session behaviour: freeze / restart | superseded by 0007 |
 | [0007](0007-transport-lifecycle.md) | Transport-based measurement lifecycle | accepted |
+| [0008](0008-coherent-reading-snapshot.md) | Coherent reading snapshot (seqlock) | accepted |

@@ -44,20 +44,21 @@ void LufsMeterAudioProcessorEditor::updateSizeLimits()
     if (auto* limits = getConstrainer())
     {
         if (processorRef.getSettings().orientation == MeterOrientation::horizontal)
-            limits->setSizeLimits (210, 96, 4000, 4000);
+            limits->setSizeLimits (360, 96 + MeterComponent::secondaryRowHeight, 4000, 4000);
         else
-            limits->setSizeLimits (150, 240, 4000, 4000);
+            limits->setSizeLimits (190, 300, 4000, 4000);
     }
 }
 
 juce::Point<int> LufsMeterAudioProcessorEditor::getPreferredSize (const MeterSettings& s) const
 {
     if (s.orientation == MeterOrientation::horizontal)
-        return s.size == MeterSizeMode::compact ? juce::Point<int> (430, 104)
-                                                : juce::Point<int> (400, 82);
+        return s.size == MeterSizeMode::compact
+                   ? juce::Point<int> (430, 104 + MeterComponent::secondaryRowHeight)
+                   : juce::Point<int> (400, 82 + MeterComponent::secondaryRowHeight);
 
-    return s.size == MeterSizeMode::compact ? juce::Point<int> (188, 360)
-                                            : juce::Point<int> (166, 312);
+    return s.size == MeterSizeMode::compact ? juce::Point<int> (224, 360)
+                                            : juce::Point<int> (200, 312);
 }
 
 void LufsMeterAudioProcessorEditor::timerCallback()
