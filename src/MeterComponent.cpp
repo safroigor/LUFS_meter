@@ -1,32 +1,57 @@
 #include "MeterComponent.h"
 
 #include "MeasurementEngine.h"
+#include "MeterTheme.h"
+
+#include <cmath>
 
 namespace
 {
-    constexpr double minLufs = -30.0;
-    constexpr double maxLufs = 0.0;
-    constexpr int    innerPadding = 6;
+    // Fixed number of segments: independent of size, so every segment in a
+    // render has identical dimensions and spacing (the FabFilter-style look).
+    constexpr int segmentCount = 48;
 
-    const juce::Colour trackColour  = juce::Colour (0xff2b2b2b);
-    const juce::Colour greenColour  = juce::Colour (0xff18c96a);
-    const juce::Colour yellowColour = juce::Colour (0xfff2d90b);
-    const juce::Colour textColour   = juce::Colour (0xffececec);
-    const juce::Colour dimColour    = juce::Colour (0xff8f8f8f);
-    const juce::Colour rulerColour  = juce::Colour (0xff565656);
-    const juce::Colour markerColour = juce::Colour (0xffffffff);
+    // Shared layout constants, used by both orientations so the geometry can
+    // never drift between paint() and the two layout functions.
+    namespace Layout
+    {
+        constexpr int   marginX = 8;
+        constexpr int   marginY = 8;
+        constexpr float segmentRadius = 3.0f;
+        constexpr double tickStep = 6.0;        // LUFS between scale labels
+    }
+
+    const char* const modeLabel = "LUFS-I";
 
     float proportion (double value)
     {
-        return (float) juce::jlimit (0.0, 1.0, (value - minLufs) / (maxLufs - minLufs));
+        return (float) juce::jlimit (0.0, 1.0,
+                                     (value - MeterSettings::scaleMinLufs)
+                                         / (MeterSettings::scaleMaxLufs - MeterSettings::scaleMinLufs));
     }
 
-    juce::ColourGradient makeGradient (juce::Point<float> from, juce::Point<float> to)
+    juce::Colour colourForZone (MeterZone zone, const MeterSettings& s)
     {
-        const auto yellowProportion = proportion (-14.0);
-        juce::ColourGradient gradient (greenColour, from, yellowColour, to, false);
-        gradient.addColour (juce::jlimit (0.0, 1.0, (double) yellowProportion), yellowColour);
-        return gradient;
+        switch (zone)
+        {
+            case MeterZone::green: return juce::Colour (s.greenColour);
+            case MeterZone::red:   return juce::Colour (s.redColour);
+            case MeterZone::normal:
+            default:               return juce::Colour (s.defaultColour);
+        }
+    }
+
+    juce::Colour segmentColour (const MeterSettings& s, double segValue, bool filled)
+    {
+        return filled ? colourForZone (s.zoneForValue (segValue), s) : MeterTheme::track;
+    }
+
+    // The displayed reading is rounded to 0.1 LU. Using the *same* rounded value
+    // for the numeric text and for the zone classification keeps text and meter
+    // in agreement and stable around zone boundaries.
+    double roundToDisplay (double value)
+    {
+        return std::round (value * 10.0) / 10.0;
     }
 
     // A plain hyphen; rendering is guaranteed regardless of the source-code
@@ -36,36 +61,59 @@ namespace
         return hasValue ? juce::String (value, 1) : juce::String ("-");
     }
 
-    void drawFilledTrack (juce::Graphics& g, juce::Rectangle<float> bar, float radius,
-                          juce::Rectangle<float> filled, juce::ColourGradient gradient)
+    juce::String tickText (double value)
     {
-        juce::Path clip;
-        clip.addRoundedRectangle (bar, radius);
-
-        juce::Graphics::ScopedSaveState save (g);
-        g.reduceClipRegion (clip);
-        g.setGradientFill (gradient);
-        g.fillRect (filled);
+        // Magnitudes only: repeating minus signs beside a negative reading
+        // looked like two minus signs.
+        return juce::String ((int) std::lround (std::abs (value)));
     }
 
-    void drawTicksHorizontal (juce::Graphics& g, juce::Rectangle<float> bar, int componentWidth,
-                              int labelTop, float fontHeight)
+    /** A row of the given height whose *visual* vertical centre sits on
+        `centreY`. Text drawn into it with a centred justification is centred on
+        that coordinate, independent of component bounds or baselines. */
+    juce::Rectangle<int> rowAtCentreY (juce::Rectangle<int> area, float centreY, int height)
     {
-        g.setFont (fontHeight);
-        g.setColour (rulerColour);
+        return { area.getX(),
+                 (int) std::lround (centreY - (float) height * 0.5f),
+                 area.getWidth(),
+                 height };
+    }
 
-        for (int v = (int) minLufs; v <= (int) maxLufs; v += 3)
+    int textWidth (const juce::Font& font, const juce::String& text)
+    {
+        return juce::GlyphArrangement::getStringWidth (font, text);
+    }
+
+    /** Picks a tick step (from `Layout::tickStep` upward) that keeps at least
+        `minSpacingPx` between adjacent labels, so larger fonts never overlap. */
+    double chooseTickStep (float lengthPx, int minSpacingPx)
+    {
+        const double range = MeterSettings::scaleMaxLufs - MeterSettings::scaleMinLufs;
+
+        for (double step : { Layout::tickStep, 10.0, 15.0, 30.0 })
+            if (lengthPx * (float) (step / range) >= (float) minSpacingPx)
+                return step;
+
+        return 30.0;
+    }
+
+    /** Fills a row/column of uniform rounded segments. `segmentPitch` is the
+        distance between segment starts and `gap` the dark space between them;
+        `rectFor` builds each segment rectangle from its index. */
+    template <typename RectFor>
+    void drawSegments (juce::Graphics& g, const MeterSettings& s, bool hasValue, double value,
+                       float segmentPitch, float gap, RectFor&& rectFor)
+    {
+        for (int i = 0; i < segmentCount; ++i)
         {
-            const float x = bar.getX() + proportion ((double) v) * bar.getWidth();
-            g.fillRect (juce::Rectangle<float> (x - 0.5f, (float) labelTop - 5.0f, 1.0f, 4.0f));
+            const double segValue = MeterSettings::scaleMinLufs
+                                    + ((i + 0.5) / (double) segmentCount)
+                                          * (MeterSettings::scaleMaxLufs - MeterSettings::scaleMinLufs);
 
-            // Magnitudes only: repeating minus signs beside a negative reading
-            // looked like two minus signs.
-            const int labelX = juce::jlimit (0, juce::jmax (0, componentWidth - 32),
-                                             (int) x - 16);
-            g.drawText (juce::String (v < 0 ? -v : v),
-                        juce::Rectangle<int> (labelX, labelTop, 32, 12),
-                        juce::Justification::centred, false);
+            const bool filled = hasValue && value >= segValue;
+
+            g.setColour (segmentColour (s, segValue, filled));
+            g.fillRoundedRectangle (rectFor (i, segmentPitch, gap), Layout::segmentRadius);
         }
     }
 }
@@ -77,14 +125,14 @@ MeterComponent::MeterComponent (const MeasurementEngine& engine)
 
 void MeterComponent::setSettings (const MeterSettings& s)
 {
-    settings_ = s;
+    settings_ = s.sanitised();
     repaint();
 }
 
 void MeterComponent::paint (juce::Graphics& g)
 {
     const bool hasValue = engine_.hasValue();
-    const double value = engine_.getIntegratedLufs();
+    const double value = roundToDisplay (engine_.getIntegratedLufs());
 
     if (settings_.orientation == MeterOrientation::horizontal)
         paintHorizontal (g, getLocalBounds(), hasValue, value);
@@ -95,173 +143,195 @@ void MeterComponent::paint (juce::Graphics& g)
 void MeterComponent::paintHorizontal (juce::Graphics& g, juce::Rectangle<int> area,
                                       bool hasValue, double value)
 {
-    const bool compact = settings_.size == MeterSizeMode::compact;
+    const auto s = settings_.sanitised();
+    const bool compact = s.size == MeterSizeMode::compact;
 
-    auto r = area.reduced (innerPadding, innerPadding / 2);
-    const float centreY = (float) r.getCentreY();
+    auto r = area.reduced (Layout::marginX, Layout::marginY);
 
-    const int numFont = compact ? 34 : 26;
-    const int unitFont = compact ? 12 : 10;
-    const int unitWidth = compact ? 38 : 32;
-    const int valueWidth = compact ? 132 : 108;
-    const int labelWidth = compact ? 52 : 44;
+    const juce::Font valueFont = MeterTheme::mediumFont (compact ? 46.0f : 32.0f);
+    const float labelFont = compact ? 14.0f : 13.0f;
+    const float tickFont  = compact ? 13.0f : 12.0f;
+
+    // Size the reading to its own text (plus a small pad) so the meter can take
+    // all remaining width and the gap before the reading stays small.
+    const juce::String valueText = formatValue (hasValue, value);
+    const int valueWidth = juce::jmax (textWidth (valueFont, valueText),
+                                       textWidth (valueFont, "-00.0")) + 8;
+
+    const int labelWidth = s.showLabel ? juce::jmin (66, juce::jmax (34, r.getWidth() / 6)) : 0;
+
+    // Guarantee a usable meter on narrow windows.
+    const int minBarWidth = 60;
+    const int valueW = juce::jmin (valueWidth, juce::jmax (40, r.getWidth() - labelWidth - minBarWidth));
 
     juce::Rectangle<int> labelArea;
-    if (settings_.showLabel)
+    if (s.showLabel)
         labelArea = r.removeFromLeft (labelWidth);
 
-    auto valueArea = r.removeFromRight (valueWidth);
+    auto valueArea = r.removeFromRight (valueW);
     auto barArea = r;
 
-    const int barThickness = compact ? 18 : 12;
-    const float radius = (float) barThickness * 0.5f;
-    juce::Rectangle<float> bar ((float) barArea.getX(),
-                                centreY - (float) barThickness * 0.5f,
-                                (float) barArea.getWidth(),
-                                (float) barThickness);
+    // Shared visual centreline: label, meter and reading all centre on this Y.
+    // The scale ruler/ticks are an independent group below the meter.
+    const float height = (float) barArea.getHeight();
+    const float scaleReserve = s.showScale ? tickFont + 12.0f : 0.0f;
+    const float contentHeight = juce::jmax (1.0f, height - scaleReserve);
+    const float centreY = (float) barArea.getY() + contentHeight * 0.5f;
+    const float barThickness = juce::jlimit (12.0f, compact ? 30.0f : 22.0f, contentHeight * 0.9f);
 
-    g.setColour (trackColour);
-    g.fillRoundedRectangle (bar, radius);
+    juce::Rectangle<float> bar ((float) barArea.getX(),
+                                centreY - barThickness * 0.5f,
+                                (float) barArea.getWidth(),
+                                barThickness);
+
+    const float pitch = bar.getWidth() / (float) segmentCount;
+    const float gap = juce::jlimit (1.0f, 3.0f, pitch * 0.3f);
+
+    drawSegments (g, s, hasValue, value, pitch, gap,
+                  [&] (int i, float p, float g2)
+                  {
+                      return juce::Rectangle<float> (bar.getX() + (float) i * p + g2 * 0.5f,
+                                                     bar.getY(),
+                                                     juce::jmax (1.0f, p - g2),
+                                                     bar.getHeight());
+                  });
 
     if (hasValue)
     {
         const float x = bar.getX() + proportion (value) * bar.getWidth();
-
-        drawFilledTrack (g, bar, radius,
-                         { bar.getX(), bar.getY(), x - bar.getX(), bar.getHeight() },
-                         makeGradient ({ bar.getX(), bar.getCentreY() },
-                                       { bar.getRight(), bar.getCentreY() }));
-
-        g.setColour (markerColour);
-        g.fillRect (juce::Rectangle<float> (x - 1.0f, bar.getY() - 4.0f,
-                                            2.0f, bar.getHeight() + 8.0f));
+        g.setColour (MeterTheme::marker);
+        g.fillRect (juce::Rectangle<float> (x - 1.0f, bar.getY() - 4.0f, 2.0f, bar.getHeight() + 8.0f));
     }
 
-    if (settings_.showScale)
-        drawTicksHorizontal (g, bar, getWidth(), (int) bar.getBottom() + 6,
-                             compact ? 10.5f : 9.5f);
-
-    if (settings_.showLabel)
+    if (s.showScale)
     {
-        g.setColour (textColour);
-        g.setFont (compact ? 14.0f : 12.0f);
-        auto labelRect = labelArea.withSizeKeepingCentre (labelArea.getWidth(), 20);
-        labelRect.translate (0, (int) centreY - labelRect.getCentreY());
-        g.drawText ("LUFS", labelRect, juce::Justification::centredLeft, false);
+        g.setFont (MeterTheme::regularFont (tickFont));
+
+        const int tickLabelW = 34;
+        const int tickLabelH = 16;
+        const double step = chooseTickStep (bar.getWidth(), tickLabelW + 4);
+
+        for (double v = MeterSettings::scaleMinLufs; v <= MeterSettings::scaleMaxLufs + 0.001; v += step)
+        {
+            const float x = bar.getX() + proportion (v) * bar.getWidth();
+
+            g.setColour (MeterTheme::ruler);
+            g.fillRect (juce::Rectangle<float> (x - 0.5f, bar.getBottom() + 3.0f, 1.0f, 4.0f));
+
+            const int labelX = juce::jlimit (0, juce::jmax (0, getWidth() - tickLabelW),
+                                             (int) std::lround (x) - tickLabelW / 2);
+            g.setColour (MeterTheme::textSecondary);
+            g.drawText (tickText (v),
+                        juce::Rectangle<int> (labelX, (int) bar.getBottom() + 8, tickLabelW, tickLabelH),
+                        juce::Justification::centred, false);
+        }
     }
 
-    // Value and unit share the horizontal axis with the bar.
-    const int gap = compact ? 6 : 5;
+    if (s.showLabel)
+    {
+        g.setColour (MeterTheme::textDim);
+        g.setFont (MeterTheme::regularFont (labelFont));
+        g.drawText (modeLabel, rowAtCentreY (labelArea, centreY, (int) labelFont + 6),
+                    juce::Justification::centredLeft, false);
+    }
 
-    g.setColour (hasValue ? textColour : dimColour);
-    g.setFont ((float) numFont);
-    auto numRect = valueArea.withTrimmedRight (unitWidth + gap);
-    numRect = numRect.withSizeKeepingCentre (numRect.getWidth(), numFont)
-                     .translated (0, (int) centreY - numRect.getCentreY());
-    // Fitted so two-digit readings (e.g. "-14.2") never lose their decimals.
-    g.drawFittedText (formatValue (hasValue, value), numRect,
+    g.setColour (hasValue ? colourForZone (s.zoneForValue (value), s) : MeterTheme::textDim);
+    g.setFont (valueFont);
+    g.drawFittedText (valueText, rowAtCentreY (valueArea, centreY, (int) std::lround (valueFont.getHeight()) + 6),
                       juce::Justification::centredRight, 1, 0.6f);
-
-    g.setColour (dimColour);
-    g.setFont ((float) unitFont);
-    auto unitRect = valueArea.removeFromRight (unitWidth);
-    unitRect = unitRect.withSizeKeepingCentre (unitRect.getWidth(), unitFont)
-                       .translated (0, (int) centreY - unitRect.getCentreY());
-    g.drawText ("LUFS", unitRect, juce::Justification::centredLeft, false);
 }
 
 void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area,
                                     bool hasValue, double value)
 {
-    const bool compact = settings_.size == MeterSizeMode::compact;
+    const auto s = settings_.sanitised();
+    const bool compact = s.size == MeterSizeMode::compact;
 
-    auto r = area.reduced (innerPadding, 6);
-    const float centreX = (float) getWidth() * 0.5f;
+    auto r = area.reduced (Layout::marginX, Layout::marginY);
+
+    const juce::Font valueFont = MeterTheme::mediumFont (compact ? 40.0f : 32.0f);
+    const int labelFont = compact ? 15 : 14;
+    const float tickFont = compact ? 13.0f : 12.0f;
+
+    // Bottom stack, top-to-bottom: meter, small gap, reading, tiny gap, label.
+    const int valueRowHeight = (int) std::lround (valueFont.getHeight());
+    const int labelRowHeight = labelFont + 6;
+    const int gapMeterToValue = compact ? 4 : 3;
+    const int gapValueToLabel = 2;
 
     juce::Rectangle<int> labelArea;
-    if (settings_.showLabel)
-        labelArea = r.removeFromTop (16);
+    if (s.showLabel)
+        labelArea = r.removeFromBottom (labelRowHeight);
+    r.removeFromBottom (gapValueToLabel);
+    const auto valueArea = r.removeFromBottom (valueRowHeight);
+    r.removeFromBottom (gapMeterToValue);
+    const auto meterArea = r;
 
-    auto valueArea = r.removeFromBottom (compact ? 52 : 42);
+    // The meter is centred in the content area; the ruler is an independent
+    // element drawn to its right and does not shift the meter.
+    const float meterCentreX = (float) meterArea.getCentreX();
+    const float barThickness = juce::jlimit (40.0f, compact ? 58.0f : 46.0f,
+                                             (float) meterArea.getWidth() * 0.32f);
 
-    const int barThickness = compact ? 13 : 11;
-    const int gap = 3;
-    const int rulerWidth = compact ? 13 : 11;
+    juce::Rectangle<float> bar (meterCentreX - barThickness * 0.5f,
+                                (float) meterArea.getY(),
+                                barThickness,
+                                (float) meterArea.getHeight());
 
-    // The bar is centred in the window; the ruler is drawn to its right and is
-    // NOT taken into account when centring the label and the value.
-    const float radius = (float) barThickness * 0.5f;
-    juce::Rectangle<float> bar (centreX - (float) barThickness * 0.5f,
-                                (float) r.getY(),
-                                (float) barThickness,
-                                (float) r.getHeight());
+    const float pitch = bar.getHeight() / (float) segmentCount;
+    const float gap = juce::jlimit (1.0f, 3.0f, pitch * 0.3f);
 
-    g.setColour (trackColour);
-    g.fillRoundedRectangle (bar, radius);
+    drawSegments (g, s, hasValue, value, pitch, gap,
+                  [&] (int i, float p, float g2)
+                  {
+                      return juce::Rectangle<float> (bar.getX(),
+                                                     bar.getBottom() - (float) (i + 1) * p + g2 * 0.5f,
+                                                     bar.getWidth(),
+                                                     juce::jmax (1.0f, p - g2));
+                  });
 
     if (hasValue)
     {
         const float y = bar.getBottom() - proportion (value) * bar.getHeight();
-
-        drawFilledTrack (g, bar, radius,
-                         { bar.getX(), y, bar.getWidth(), bar.getBottom() - y },
-                         makeGradient ({ bar.getCentreX(), bar.getBottom() },
-                                       { bar.getCentreX(), bar.getY() }));
-
-        g.setColour (markerColour);
+        g.setColour (MeterTheme::marker);
         g.fillRect (juce::Rectangle<float> (bar.getX() - 4.0f, y - 1.0f,
                                             bar.getWidth() + 8.0f, 2.0f));
     }
 
-    if (settings_.showScale)
+    if (s.showScale)
     {
-        g.setFont (compact ? 9.0f : 8.0f);
-        g.setColour (rulerColour);
+        g.setFont (MeterTheme::regularFont (tickFont));
+        const float tickX = bar.getRight() + 6.0f;
+        const int tickLabelH = 16;
+        const int labelW = juce::jmax (20, getWidth() - (int) tickX - 9);
+        const double step = chooseTickStep (bar.getHeight(), tickLabelH + 4);
 
-        const int tickX = (int) bar.getRight() + gap;
-
-        for (int v = (int) minLufs; v <= (int) maxLufs; v += 3)
+        for (double v = MeterSettings::scaleMinLufs; v <= MeterSettings::scaleMaxLufs + 0.001; v += step)
         {
-            const float y = bar.getBottom() - proportion ((double) v) * bar.getHeight();
-            g.fillRect (juce::Rectangle<float> ((float) tickX, y - 0.5f, 4.0f, 1.0f));
+            const float y = bar.getBottom() - proportion (v) * bar.getHeight();
 
-            const int labelY = juce::jlimit (0, juce::jmax (0, getHeight() - 12), (int) y - 6);
-            const int labelX = juce::jmin (tickX + 5, juce::jmax (0, getWidth() - rulerWidth - 2));
+            g.setColour (MeterTheme::ruler);
+            g.fillRect (juce::Rectangle<float> (tickX, y - 0.5f, 4.0f, 1.0f));
 
-            g.drawText (juce::String (v < 0 ? -v : v),
-                        juce::Rectangle<int> (labelX, labelY, rulerWidth + 4, 12),
+            const int labelY = juce::jlimit (0, juce::jmax (0, getHeight() - tickLabelH),
+                                             (int) std::lround (y) - tickLabelH / 2);
+            g.setColour (MeterTheme::textSecondary);
+            g.drawText (tickText (v),
+                        juce::Rectangle<int> ((int) tickX + 5, labelY, labelW, tickLabelH),
                         juce::Justification::centredLeft, false);
         }
     }
 
-    if (settings_.showLabel)
+    // Reading and label share the meter's centreline and form a compact group.
+    g.setColour (hasValue ? colourForZone (s.zoneForValue (value), s) : MeterTheme::textDim);
+    g.setFont (valueFont);
+    g.drawFittedText (formatValue (hasValue, value), valueArea,
+                      juce::Justification::centred, 1, 0.6f);
+
+    if (s.showLabel)
     {
-        g.setColour (textColour);
-        g.setFont (11.0f);
-        g.drawText ("LUFS", labelArea, juce::Justification::centred, false);
+        g.setColour (MeterTheme::textDim);
+        g.setFont (MeterTheme::regularFont ((float) labelFont));
+        g.drawText (modeLabel, labelArea, juce::Justification::centred, false);
     }
-
-    {
-        const auto valueText = formatValue (hasValue, value);
-        juce::Font valueFont (juce::FontOptions ((float) (compact ? 26 : 20)));
-        g.setFont (valueFont);
-        g.setColour (hasValue ? textColour : dimColour);
-
-        auto valueRect = valueArea.withTrimmedBottom (compact ? 17 : 13);
-
-        // Centre the digits, not the leading minus: every LUFS reading is
-        // negative, so including the sign would shift the digits to the right.
-        if (valueText.startsWithChar ('-'))
-        {
-            const float signWidth = juce::GlyphArrangement::getStringWidth (valueFont, "-");
-            valueRect.translate ((int) (-signWidth * 0.5f), 0);
-        }
-
-        g.drawFittedText (valueText, valueRect, juce::Justification::centred, 1, 0.6f);
-    }
-
-    g.setColour (dimColour);
-    g.setFont (compact ? 11.0f : 10.0f);
-    g.drawText ("LUFS", valueArea.removeFromBottom (compact ? 17 : 13),
-                juce::Justification::centred, false);
 }

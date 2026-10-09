@@ -7,12 +7,12 @@ reproducible Windows x64 build of the LUFS Meter VST3 plugin.
 
 | Tool | Version | Notes |
 |---|---|---|
-| OS | Windows 11 `10.0.26100`, AMD64 | native Windows, not WSL |
-| Git | 2.55.0.windows.2 | submodules used |
-| CMake | 4.4.4 | |
-| Ninja | 1.13.2 | |
-| MSVC | Visual Studio 2022 Build Tools 17.14.41 (v143) | installed to `D:\Tools\VSBuildTools` |
-| Windows SDK | installed with the VCTools workload | |
+| OS | Windows 11 `10.0.26200` (25H2), AMD64 | native Windows, not WSL |
+| Git | 2.53.0.windows.2 | submodules used |
+| CMake | 4.4.4 | `C:\Program Files\CMake\bin` |
+| Ninja | 1.13.2 | on the user PATH (winget) |
+| MSVC | Visual Studio 2022 Build Tools 17.14.41 (v143, toolset 14.44.35207) | installed to `C:\Tools\VSBuildTools` |
+| Windows SDK | 10.0.26100.0 | installed with the VCTools workload |
 | Host | REAPER x64 | `C:\Program Files\REAPER (x64)` |
 
 ## Dependencies
@@ -35,7 +35,7 @@ bundled `ebur128/queue/sys/queue.h` provides `<sys/queue.h>` on MSVC.
 winget install --id Kitware.CMake -e
 winget install --id Ninja-build.Ninja -e
 winget install --id Microsoft.VisualStudio.2022.BuildTools -e `
-  --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --installPath D:\Tools\VSBuildTools"
+  --override "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --installPath C:\Tools\VSBuildTools"
 ```
 
 ## Configure, build, test
@@ -98,7 +98,7 @@ verified.
 
 ## Release
 
-Current release: **v1.0.0** (VST3, Windows x64). Plugin identity (manufacturer
+Current release: **v1.1.0** (VST3, Windows x64). Plugin identity (manufacturer
 code, plugin code, bundle identifier, version) is listed in the
 [README](../README.md). The verified environment and test results are in
 [docs/testing.md](testing.md).

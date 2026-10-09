@@ -4,6 +4,7 @@
 
 #include "MeasurementEngine.h"
 #include "MeterSettings.h"
+#include "TransportTracker.h"
 
 /**
     VST3 audio processor for the LUFS Meter.
@@ -11,11 +12,12 @@
     This plugin is a measurement device only: it never modifies the audio
     signal.
 
-    Session behaviour: while audio is playing the Integrated Loudness is
-    measured continuously. When the signal is interrupted (transport stop or
-    pause, or a genuine break in the audio) the displayed value is frozen. As
-    soon as playback/audio resumes, a fresh measurement is started that does not
-    include any previously accumulated audio.
+    Measurement lifecycle: while the transport is playing the Integrated
+    Loudness is measured continuously, including silent passages. A new
+    measurement pass — which clears the accumulated value — starts only on a
+    transport/position event (play after stop, a seek, a loop wrap or a gap in
+    processing), never because a block merely contains silence. See
+    `TransportTracker` and docs/decisions/0007-transport-lifecycle.md.
 */
 class LufsMeterAudioProcessor final : public juce::AudioProcessor
 {
@@ -52,23 +54,21 @@ public:
     /** UI access to the latest measurement snapshot (thread-safe). */
     MeasurementEngine& getMeasurementEngine() noexcept { return meter_; }
 
-    /** Restart the Integrated Loudness measurement (UI Reset button). */
+    /** Restart the Integrated Loudness measurement (UI Reset button). Clears
+        the accumulated and displayed value; playback is not interrupted, and a
+        fresh measurement begins from the current point. */
     void resetMeasurement() { meter_.requestReset (true); }
 
     /** Persistent UI settings (message thread only). */
     MeterSettings getSettings() const noexcept { return settings_; }
-    void setSettings (const MeterSettings& s) { settings_ = s; }
+    void setSettings (const MeterSettings& s) { settings_ = s.sanitised(); }
 
 private:
-    bool isTransportPlaying() const;
-
     MeasurementEngine meter_;
     MeterSettings settings_;
 
-    // Session tracking. Only touched on the audio thread.
-    bool sessionInterrupted_ = true;
-    int silentFrames_ = 0;
-    double lastBlockTimeMs_ = 0.0;
+    // Measurement-pass lifecycle. Only touched on the audio thread.
+    TransportTracker transportTracker_;
     double currentSampleRate_ = 48000.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LufsMeterAudioProcessor)

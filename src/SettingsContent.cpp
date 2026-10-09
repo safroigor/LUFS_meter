@@ -1,30 +1,146 @@
 #include "SettingsContent.h"
 
+#include <juce_gui_extra/juce_gui_extra.h>
+
+#include "MeterTheme.h"
+
 namespace
 {
-    constexpr int padding = 16;
-    constexpr int rowHeight = 26;
-    constexpr int toggleRowHeight = 28;
-    constexpr int rowGap = 10;
-    constexpr int labelWidth = 96;
+    constexpr int padding = 18;
+    constexpr int labelWidth = 122;
+    constexpr int headingHeight = 20;
+    constexpr int rowHeight = 30;
+    constexpr int toggleHeight = 30;
+    constexpr int sliderRowHeight = 34;
+    constexpr int popupWidth = 372;
 
-    const juce::Colour backgroundColour = juce::Colour (0xff232323);
-    const juce::Colour labelColour      = juce::Colour (0xff9a9a9a);
-    const juce::Colour textColour       = juce::Colour (0xffe6e6e6);
-    const juce::Colour boxColour        = juce::Colour (0xff2e2e2e);
-    const juce::Colour boxBorderColour  = juce::Colour (0xff585858);
-    const juce::Colour accentColour     = juce::Colour (0xff18c96a);
+    /** ColourSelector that reports live changes through a std::function. */
+    class ZoneColourSelector final : public juce::ColourSelector,
+                                     private juce::ChangeListener
+    {
+    public:
+        std::function<void (juce::Colour)> onColourChange;
+
+        ZoneColourSelector()
+            : juce::ColourSelector (juce::ColourSelector::showColourAtTop
+                                    | juce::ColourSelector::editableColour
+                                    | juce::ColourSelector::showSliders
+                                    | juce::ColourSelector::showColourspace)
+        {
+            addChangeListener (this);
+        }
+
+        ~ZoneColourSelector() override
+        {
+            removeChangeListener (this);
+        }
+
+    private:
+        void changeListenerCallback (juce::ChangeBroadcaster*) override
+        {
+            if (onColourChange)
+                onColourChange (getCurrentColour());
+        }
+    };
+
+    /** Shared row layout so paint() and resized() can never drift apart. */
+    struct Rows
+    {
+        juce::Rectangle<int> title;
+        juce::Rectangle<int> orientation;
+        juce::Rectangle<int> size;
+        juce::Rectangle<int> showLabel;
+        juce::Rectangle<int> showScale;
+        juce::Rectangle<int> zonesHeading;
+        juce::Rectangle<int> greenLow;
+        juce::Rectangle<int> greenHigh;
+        juce::Rectangle<int> redThreshold;
+        juce::Rectangle<int> coloursHeading;
+        juce::Rectangle<int> defaultColour;
+        juce::Rectangle<int> greenColour;
+        juce::Rectangle<int> redColour;
+        juce::Rectangle<int> reset;
+    };
+
+    Rows computeRows (juce::Rectangle<int> bounds)
+    {
+        Rows r;
+        auto inner = bounds.reduced (padding);
+
+        r.title = inner.removeFromTop (24);
+        inner.removeFromTop (12);
+        r.orientation = inner.removeFromTop (rowHeight);
+        inner.removeFromTop (10);
+        r.size = inner.removeFromTop (rowHeight);
+        inner.removeFromTop (18);
+        r.showLabel = inner.removeFromTop (toggleHeight);
+        r.showScale = inner.removeFromTop (toggleHeight);
+        inner.removeFromTop (12);
+        r.zonesHeading = inner.removeFromTop (headingHeight);
+        inner.removeFromTop (8);
+        r.greenLow = inner.removeFromTop (sliderRowHeight);
+        inner.removeFromTop (8);
+        r.greenHigh = inner.removeFromTop (sliderRowHeight);
+        inner.removeFromTop (8);
+        r.redThreshold = inner.removeFromTop (sliderRowHeight);
+        inner.removeFromTop (16);
+        r.coloursHeading = inner.removeFromTop (headingHeight);
+        inner.removeFromTop (8);
+        r.defaultColour = inner.removeFromTop (sliderRowHeight);
+        inner.removeFromTop (8);
+        r.greenColour = inner.removeFromTop (sliderRowHeight);
+        inner.removeFromTop (8);
+        r.redColour = inner.removeFromTop (sliderRowHeight);
+        inner.removeFromTop (16);
+        r.reset = inner.removeFromTop (36);
+        return r;
+    }
+
+    /** Height needed by computeRows at `popupWidth`, derived from the layout
+        itself so the panel can never clip its content. */
+    int popupHeight()
+    {
+        juce::Rectangle<int> bounds (0, 0, popupWidth, 100000);
+        return computeRows (bounds).reset.getBottom() + padding;
+    }
+
+    void styleSlider (juce::Slider& s)
+    {
+        s.setSliderStyle (juce::Slider::LinearHorizontal);
+        s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 78, 26);
+        s.setRange (MeterSettings::scaleMinLufs, MeterSettings::scaleMaxLufs, 0.1);
+        s.setTextValueSuffix (" LUFS");
+        s.setColour (juce::Slider::backgroundColourId, MeterTheme::track);
+        s.setColour (juce::Slider::trackColourId, MeterTheme::textDim);
+        s.setColour (juce::Slider::thumbColourId, MeterTheme::textPrimary);
+        s.setColour (juce::Slider::textBoxTextColourId, MeterTheme::textPrimary);
+        s.setColour (juce::Slider::textBoxBackgroundColourId, MeterTheme::control);
+        s.setColour (juce::Slider::textBoxOutlineColourId, MeterTheme::controlBorder);
+    }
+
+    void styleFlatButton (juce::TextButton& b, bool toggling)
+    {
+        if (toggling)
+            b.setClickingTogglesState (true);
+
+        b.setColour (juce::TextButton::buttonColourId, MeterTheme::control);
+        b.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff3a4a3e));
+        b.setColour (juce::TextButton::textColourOffId, MeterTheme::textSecondary);
+        b.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    }
 }
 
 SettingsContent::SettingsContent (MeterSettings initial,
                                   std::function<void (MeterSettings)> onSettingsChanged,
                                   std::function<void()> onReset)
-    : settings_ (initial),
+    : settings_ (initial.sanitised()),
       onSettingsChanged_ (std::move (onSettingsChanged)),
       onReset_ (std::move (onReset))
 {
-    horizontalButton_.setClickingTogglesState (true);
-    verticalButton_.setClickingTogglesState (true);
+    setLookAndFeel (&MeterTheme::lookAndFeel());
+
+    styleFlatButton (horizontalButton_, true);
+    styleFlatButton (verticalButton_, true);
     horizontalButton_.setRadioGroupId (2);
     verticalButton_.setRadioGroupId (2);
     horizontalButton_.onClick = [this] { emitSettings(); };
@@ -37,22 +153,92 @@ SettingsContent::SettingsContent (MeterSettings initial,
     sizeCombo_.onChange = [this] { emitSettings(); };
     addAndMakeVisible (sizeCombo_);
 
+    showLabelButton_.onClick = [this] { emitSettings(); };
+    showScaleButton_.onClick = [this] { emitSettings(); };
+    addAndMakeVisible (showLabelButton_);
+    addAndMakeVisible (showScaleButton_);
+
+    for (auto* slider : { &greenLowSlider_, &greenHighSlider_, &redThresholdSlider_ })
+    {
+        styleSlider (*slider);
+        slider->onValueChange = [this] { emitSettings(); };
+        addAndMakeVisible (*slider);
+    }
+
+    for (auto* button : { &defaultColourButton_, &greenColourButton_, &redColourButton_ })
+    {
+        styleFlatButton (*button, false);
+        button->setTriggeredOnMouseDown (false);
+        addAndMakeVisible (*button);
+    }
+
+    defaultColourButton_.onClick = [this] { openColourSelector (0); };
+    greenColourButton_.onClick   = [this] { openColourSelector (1); };
+    redColourButton_.onClick     = [this] { openColourSelector (2); };
+
+    styleFlatButton (resetButton_, false);
     resetButton_.onClick = [this] { if (onReset_) onReset_(); };
     addAndMakeVisible (resetButton_);
 
     refreshControls();
-    setSize (280, padding * 2 + 26 + rowHeight + rowGap + rowHeight + rowGap * 2
-                      + toggleRowHeight * 2 + 12 + 34);
+    setSize (popupWidth, popupHeight());
+}
+
+juce::Colour SettingsContent::currentZoneColour (int zone) const
+{
+    if (zone == 1)
+        return juce::Colour (settings_.greenColour);
+    if (zone == 2)
+        return juce::Colour (settings_.redColour);
+    return juce::Colour (settings_.defaultColour);
+}
+
+juce::TextButton& SettingsContent::colourButton (int zone)
+{
+    if (zone == 1)
+        return greenColourButton_;
+    if (zone == 2)
+        return redColourButton_;
+    return defaultColourButton_;
+}
+
+void SettingsContent::updateSwatch (juce::TextButton& button, juce::uint32 argb)
+{
+    const juce::Colour colour (argb);
+    const float brightness = colour.getBrightness();
+
+    button.setColour (juce::TextButton::buttonColourId, colour);
+    button.setColour (juce::TextButton::buttonOnColourId, colour);
+    button.setColour (juce::TextButton::textColourOffId,
+                      brightness > 0.6f ? juce::Colour (0xff202020) : juce::Colours::white);
+    button.setButtonText (juce::String::toHexString ((int) argb).substring (2).toUpperCase());
 }
 
 void SettingsContent::refreshControls()
 {
+    settings_ = settings_.sanitised();
+
     horizontalButton_.setToggleState (settings_.orientation == MeterOrientation::horizontal,
                                       juce::dontSendNotification);
     verticalButton_.setToggleState (settings_.orientation == MeterOrientation::vertical,
                                     juce::dontSendNotification);
     sizeCombo_.setSelectedId (settings_.size == MeterSizeMode::slim ? 1 : 2,
                               juce::dontSendNotification);
+
+    showLabelButton_.setToggleState (settings_.showLabel, juce::dontSendNotification);
+    showScaleButton_.setToggleState (settings_.showScale, juce::dontSendNotification);
+
+    greenLowSlider_.setValue (settings_.greenLow, juce::dontSendNotification);
+    greenHighSlider_.setValue (settings_.greenHigh, juce::dontSendNotification);
+    redThresholdSlider_.setValue (settings_.redThreshold, juce::dontSendNotification);
+
+    const auto accentColour = juce::Colour (settings_.greenColour);
+    showLabelButton_.setColour (juce::ToggleButton::tickColourId, accentColour);
+    showScaleButton_.setColour (juce::ToggleButton::tickColourId, accentColour);
+
+    updateSwatch (defaultColourButton_, settings_.defaultColour);
+    updateSwatch (greenColourButton_, settings_.greenColour);
+    updateSwatch (redColourButton_, settings_.redColour);
 }
 
 void SettingsContent::emitSettings()
@@ -61,6 +247,13 @@ void SettingsContent::emitSettings()
                                                              : MeterOrientation::horizontal;
     settings_.size = sizeCombo_.getSelectedId() == 1 ? MeterSizeMode::slim
                                                      : MeterSizeMode::compact;
+    settings_.showLabel = showLabelButton_.getToggleState();
+    settings_.showScale = showScaleButton_.getToggleState();
+    settings_.greenLow = greenLowSlider_.getValue();
+    settings_.greenHigh = greenHighSlider_.getValue();
+    settings_.redThreshold = redThresholdSlider_.getValue();
+
+    refreshControls();
 
     if (onSettingsChanged_)
         onSettingsChanged_ (settings_);
@@ -68,100 +261,102 @@ void SettingsContent::emitSettings()
     repaint();
 }
 
-void SettingsContent::mouseDown (const juce::MouseEvent& e)
+void SettingsContent::setZoneColour (int zone, juce::Colour colour)
 {
-    const auto pos = e.getPosition();
+    const auto argb = colour.getARGB();
 
-    if (showLabelRect_.contains (pos))
+    if (zone == 1)
+        settings_.greenColour = argb;
+    else if (zone == 2)
+        settings_.redColour = argb;
+    else
+        settings_.defaultColour = argb;
+
+    updateSwatch (colourButton (zone), argb);
+
+    if (zone == 1)
     {
-        settings_.showLabel = ! settings_.showLabel;
-        emitSettings();
+        showLabelButton_.setColour (juce::ToggleButton::tickColourId, colour);
+        showScaleButton_.setColour (juce::ToggleButton::tickColourId, colour);
     }
-    else if (showScaleRect_.contains (pos))
-    {
-        settings_.showScale = ! settings_.showScale;
-        emitSettings();
-    }
+
+    if (onSettingsChanged_)
+        onSettingsChanged_ (settings_);
+
+    repaint();
 }
 
-void SettingsContent::drawCheckboxRow (juce::Graphics& g, juce::Rectangle<int> row,
-                                       const juce::String& label, bool on) const
+void SettingsContent::openColourSelector (int zone)
 {
-    auto box = row.removeFromLeft (row.getHeight()).reduced (0, 3).toFloat();
+    auto safe = juce::Component::SafePointer<SettingsContent> (this);
 
-    g.setColour (on ? accentColour : boxColour);
-    g.fillRoundedRectangle (box, 4.0f);
-
-    if (on)
+    auto selector = std::make_unique<ZoneColourSelector>();
+    selector->setCurrentColour (currentZoneColour (zone), juce::dontSendNotification);
+    selector->setSize (300, 320);
+    selector->onColourChange = [safe, zone] (juce::Colour colour)
     {
-        juce::Path tick;
-        tick.startNewSubPath (box.getX() + 4.0f, box.getCentreY());
-        tick.lineTo (box.getCentreX() - 1.0f, box.getBottom() - 4.5f);
-        tick.lineTo (box.getRight() - 4.0f, box.getY() + 4.5f);
-        g.setColour (juce::Colours::white);
-        g.strokePath (tick, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved,
-                                                  juce::PathStrokeType::rounded));
-    }
-    else
-    {
-        g.setColour (boxBorderColour);
-        g.drawRoundedRectangle (box.reduced (0.75f), 4.0f, 1.5f);
-    }
+        if (auto* self = safe.getComponent())
+            self->setZoneColour (zone, colour);
+    };
 
-    g.setColour (textColour);
-    g.setFont (13.5f);
-    g.drawText (label, row.withTrimmedLeft (8), juce::Justification::centredLeft, false);
+    juce::CallOutBox::launchAsynchronously (std::move (selector),
+                                            colourButton (zone).getScreenBounds(),
+                                            nullptr);
 }
 
 void SettingsContent::paint (juce::Graphics& g)
 {
-    g.fillAll (backgroundColour);
+    g.fillAll (MeterTheme::panelBackground);
 
-    g.setColour (juce::Colour (0xfff2f2f2));
-    g.setFont (juce::Font (juce::FontOptions (15.0f, juce::Font::bold)));
-    g.drawText ("Settings",
-                juce::Rectangle<int> (padding, padding, getWidth() - padding * 2, 20),
-                juce::Justification::centredLeft, false);
+    const auto rows = computeRows (getLocalBounds());
 
-    g.setColour (labelColour);
-    g.setFont (12.5f);
+    g.setColour (MeterTheme::textPrimary);
+    g.setFont (MeterTheme::mediumFont (17.0f));
+    g.drawText ("Settings", rows.title, juce::Justification::centredLeft, false);
 
-    auto inner = getLocalBounds().reduced (padding);
-    inner.removeFromTop (26);
+    g.setColour (MeterTheme::textSecondary);
+    g.setFont (MeterTheme::regularFont (13.0f));
+    g.drawText ("ZONES (LUFS)", rows.zonesHeading, juce::Justification::centredLeft, false);
+    g.drawText ("COLOURS", rows.coloursHeading, juce::Justification::centredLeft, false);
 
-    auto r1 = inner.removeFromTop (rowHeight);
-    g.drawText ("Orientation", r1, juce::Justification::centredLeft, false);
-    inner.removeFromTop (rowGap);
-
-    auto r2 = inner.removeFromTop (rowHeight);
-    g.drawText ("Size", r2, juce::Justification::centredLeft, false);
-    inner.removeFromTop (rowGap * 2);
-
-    drawCheckboxRow (g, inner.removeFromTop (toggleRowHeight), "Show label", settings_.showLabel);
-    drawCheckboxRow (g, inner.removeFromTop (toggleRowHeight), "Show scale", settings_.showScale);
+    g.setColour (MeterTheme::textSecondary);
+    g.setFont (MeterTheme::regularFont (14.5f));
+    g.drawText ("Orientation", rows.orientation, juce::Justification::centredLeft, false);
+    g.drawText ("Size", rows.size, juce::Justification::centredLeft, false);
+    g.drawText ("Green low", rows.greenLow, juce::Justification::centredLeft, false);
+    g.drawText ("Green high", rows.greenHigh, juce::Justification::centredLeft, false);
+    g.drawText ("Red threshold", rows.redThreshold, juce::Justification::centredLeft, false);
+    g.drawText ("Default", rows.defaultColour, juce::Justification::centredLeft, false);
+    g.drawText ("Green", rows.greenColour, juce::Justification::centredLeft, false);
+    g.drawText ("Red", rows.redColour, juce::Justification::centredLeft, false);
 }
 
 void SettingsContent::resized()
 {
-    auto inner = getLocalBounds().reduced (padding);
-    inner.removeFromTop (26);
+    auto rows = computeRows (getLocalBounds());
 
-    auto r1 = inner.removeFromTop (rowHeight);
-    r1.removeFromLeft (labelWidth);
-    const int half = (r1.getWidth() - 6) / 2;
-    horizontalButton_.setBounds (r1.removeFromLeft (half));
-    r1.removeFromLeft (6);
-    verticalButton_.setBounds (r1.removeFromLeft (half));
-    inner.removeFromTop (rowGap);
+    auto orientation = rows.orientation.withTrimmedLeft (labelWidth);
+    const int half = (orientation.getWidth() - 6) / 2;
+    horizontalButton_.setBounds (orientation.removeFromLeft (half));
+    orientation.removeFromLeft (6);
+    verticalButton_.setBounds (orientation.removeFromLeft (half));
 
-    auto r2 = inner.removeFromTop (rowHeight);
-    r2.removeFromLeft (labelWidth);
-    sizeCombo_.setBounds (r2);
-    inner.removeFromTop (rowGap * 2);
+    sizeCombo_.setBounds (rows.size.withTrimmedLeft (labelWidth));
 
-    showLabelRect_ = inner.removeFromTop (toggleRowHeight);
-    showScaleRect_ = inner.removeFromTop (toggleRowHeight);
-    inner.removeFromTop (12);
+    showLabelButton_.setBounds (rows.showLabel);
+    showScaleButton_.setBounds (rows.showScale);
 
-    resetButton_.setBounds (inner.removeFromTop (34).removeFromLeft (110));
+    greenLowSlider_.setBounds (rows.greenLow.withTrimmedLeft (labelWidth));
+    greenHighSlider_.setBounds (rows.greenHigh.withTrimmedLeft (labelWidth));
+    redThresholdSlider_.setBounds (rows.redThreshold.withTrimmedLeft (labelWidth));
+
+    const int swatchWidth = 132;
+    defaultColourButton_.setBounds (rows.defaultColour.withTrimmedLeft (labelWidth)
+                                        .removeFromRight (swatchWidth));
+    greenColourButton_.setBounds (rows.greenColour.withTrimmedLeft (labelWidth)
+                                      .removeFromRight (swatchWidth));
+    redColourButton_.setBounds (rows.redColour.withTrimmedLeft (labelWidth)
+                                    .removeFromRight (swatchWidth));
+
+    resetButton_.setBounds (rows.reset.removeFromLeft (110));
 }

@@ -7,19 +7,21 @@ bar scale.
 The plugin is a **measurement device**. It never modifies the incoming audio
 signal.
 
-> **Status: v1.0.0 (release).** Reproducible VST3 build, measurement engine
-> with passing unit tests, and the meter UI. See
-> [docs/development.md](docs/development.md) and [docs/testing.md](docs/testing.md)
-> for the exact verified state.
+> **Status: v1.1.0.** Redesigned UI (segmented zone-coloured meter, vector icons,
+> HiDPI settings) and a transport-based measurement lifecycle. See
+> [docs/testing.md](docs/testing.md) for the exact verified state and offscreen
+> [UI previews](docs/testing.md#ui-previews-offscreen).
 
-## Features (target)
+## Features
 
-- Integrated Loudness (LUFS), rounded to 0.1 LU.
-- Slim horizontal / vertical bar scale.
+- Integrated Loudness (LUFS-I), rounded to 0.1 LU, with a large focal reading
+  coloured by the active zone.
+- Segmented horizontal / vertical scale with configurable green and red zones.
 - Horizontal / vertical orientation switch.
-- Reset button.
-- Slim / compact display modes.
-- Optional LUFS label and scale marks.
+- Transport-driven measurement pass: silence during playback never clears the
+  value; play-after-stop, seek and loop start a new pass.
+- Reset button in the main interface; Slim / compact display modes.
+- Optional `LUFS-I` label and scale marks.
 - Explicit "no valid value yet" state (never a fake `0 LUFS`).
 - Non-blocking UI updates.
 
@@ -34,7 +36,7 @@ loudness history graphs, target levels, extra DSP.
 | Manufacturer code | `Safr` |
 | Plugin code | `Lufs` |
 | Bundle identifier | `com.SafroAudio.LUFSMeter` |
-| Product version | 1.0.0 |
+| Product version | 1.1.0 |
 | Format | VST3, Windows x64 |
 
 ## Requirements

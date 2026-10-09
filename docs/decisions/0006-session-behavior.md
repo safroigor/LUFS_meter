@@ -1,6 +1,6 @@
 # ADR 0006 — Session behaviour: freeze on interruption, restart on resume
 
-- **Status:** accepted
+- **Status:** superseded by [0007](0007-transport-lifecycle.md)
 - **Date:** 2026-10-09
 
 ## Context

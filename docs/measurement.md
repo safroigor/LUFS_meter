@@ -54,6 +54,20 @@ architecture ADR.
 
 `ebur128_state` must be used by a single thread only (not thread-safe).
 
+## Silence and measurement continuity
+
+Silent audio is fed to libebur128 like any other audio. Blocks whose mean square
+is below the `-70 LUFS` absolute gate simply do not contribute to the integrated
+value; they never clear the accumulated state. As a result:
+
+- a silent passage during continuous playback does not reset the measurement;
+- spoken-word takes separated by silent gaps read as one integrated value for
+  the whole playback pass.
+
+Clearing the measurement is a **transport** concern, not a signal-amplitude
+concern: see `docs/decisions/0007-transport-lifecycle.md` and
+`docs/architecture.md`.
+
 ## Limitations
 
 - No True Peak, Momentary or Short-term LUFS in v1.

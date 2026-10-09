@@ -43,6 +43,7 @@ function Resolve-Vcvars64 {
         }
     }
 
+    $candidates.Add('C:\Tools\VSBuildTools\VC\Auxiliary\Build\vcvars64.bat')
     $candidates.Add('D:\Tools\VSBuildTools\VC\Auxiliary\Build\vcvars64.bat')
     $candidates.Add('C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat')
     $candidates.Add('C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat')

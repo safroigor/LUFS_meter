@@ -2,6 +2,8 @@
 
 #include "LoudnessMeter.h"
 #include "MeasurementEngine.h"
+#include "MeterSettings.h"
+#include "TransportTracker.h"
 
 #include <algorithm>
 #include <functional>
@@ -216,6 +218,308 @@ namespace
     }
 
     // -----------------------------------------------------------------------
+    // Integrated loudness across silent passages
+    // -----------------------------------------------------------------------
+
+    void testSilenceInMiddleKeepsValue()
+    {
+        std::printf ("testSilenceInMiddleKeepsValue\n");
+
+        // tone - silence - tone. Silent blocks are below the absolute gate and
+        // must not disturb the accumulated integrated value.
+        auto data = makeSine (2, 48000.0, 20.0, 1000.0, -23.0);
+        const auto gap = makeSilence (2, 48000.0, 15.0);
+        const auto tone = makeSine (2, 48000.0, 20.0, 1000.0, -23.0);
+        data.insert (data.end(), gap.begin(), gap.end());
+        data.insert (data.end(), tone.begin(), tone.end());
+
+        TEST_CHECK_NEAR (measure (2, 48000.0, data), -23.0, 0.1);
+    }
+
+    void testMultipleTakesSeparatedBySilence()
+    {
+        std::printf ("testMultipleTakesSeparatedBySilence\n");
+
+        // Several "takes" at the same level, separated by long silent gaps,
+        // must read as one continuous integrated value.
+        std::vector<float> data;
+        for (int take = 0; take < 4; ++take)
+        {
+            const auto tone = makeSine (2, 48000.0, 10.0, 1000.0, -23.0);
+            data.insert (data.end(), tone.begin(), tone.end());
+
+            if (take < 3)
+            {
+                const auto gap = makeSilence (2, 48000.0, 8.0);
+                data.insert (data.end(), gap.begin(), gap.end());
+            }
+        }
+
+        TEST_CHECK_NEAR (measure (2, 48000.0, data), -23.0, 0.1);
+    }
+
+    // -----------------------------------------------------------------------
+    // Colour zones / configuration model
+    // -----------------------------------------------------------------------
+
+    void testZoneClassification()
+    {
+        std::printf ("testZoneClassification\n");
+
+        const MeterSettings s; // green [-24, -14], red >= -14
+
+        TEST_CHECK (s.zoneForValue (-30.0) == MeterZone::normal);
+        TEST_CHECK (s.zoneForValue (-24.0) == MeterZone::green);
+        TEST_CHECK (s.zoneForValue (-20.0) == MeterZone::green);
+        TEST_CHECK (s.zoneForValue (-14.0) == MeterZone::red);   // red wins at the shared boundary
+        TEST_CHECK (s.zoneForValue (-6.0)  == MeterZone::red);
+        TEST_CHECK (s.zoneForValue (-24.01) == MeterZone::normal);
+
+        // A gap between the green band and the red threshold is normal, not red.
+        MeterSettings g;
+        g.greenLow = -24.0;
+        g.greenHigh = -16.0;
+        g.redThreshold = -14.0;
+        TEST_CHECK (g.zoneForValue (-15.0) == MeterZone::normal);
+    }
+
+    void testZoneSanitisation()
+    {
+        std::printf ("testZoneSanitisation\n");
+
+        // Reversed / out-of-range values must be ordered and clamped.
+        MeterSettings bad;
+        bad.greenLow = -10.0;
+        bad.greenHigh = -20.0;
+        bad.redThreshold = -25.0;
+
+        const auto fixed = bad.sanitised();
+        TEST_CHECK (fixed.greenLow <= fixed.greenHigh);
+        TEST_CHECK (fixed.greenHigh <= fixed.redThreshold);
+        TEST_CHECK (fixed.greenLow >= MeterSettings::scaleMinLufs);
+        TEST_CHECK (fixed.redThreshold <= MeterSettings::scaleMaxLufs);
+
+        MeterSettings extreme;
+        extreme.greenLow = -1000.0;
+        extreme.greenHigh = 1000.0;
+        extreme.redThreshold = 1000.0;
+
+        const auto clamped = extreme.sanitised();
+        TEST_CHECK_NEAR (clamped.greenLow, MeterSettings::scaleMinLufs, 1.0e-9);
+        TEST_CHECK_NEAR (clamped.greenHigh, MeterSettings::scaleMaxLufs, 1.0e-9);
+        TEST_CHECK_NEAR (clamped.redThreshold, MeterSettings::scaleMaxLufs, 1.0e-9);
+    }
+
+    void testZoneBoundaryConsistency()
+    {
+        std::printf ("testZoneBoundaryConsistency\n");
+
+        // Reproduces the reported case: greenHigh = -14.0, redThreshold = -13.9,
+        // reading = -13.9. The reading must be red, not default.
+        MeterSettings s;
+        s.greenLow = -16.0;
+        s.greenHigh = -14.0;
+        s.redThreshold = -13.9;
+
+        TEST_CHECK (s.zoneForValue (-13.9) == MeterZone::red);
+        TEST_CHECK (s.zoneForValue (-13.8) == MeterZone::red);
+        TEST_CHECK (s.zoneForValue (-13.9000001) == MeterZone::red); // epsilon
+        TEST_CHECK (s.zoneForValue (-13.95) == MeterZone::normal);   // gap is normal
+        TEST_CHECK (s.zoneForValue (-14.0) == MeterZone::green);     // reaches green
+        TEST_CHECK (s.zoneForValue (-16.0) == MeterZone::green);
+        TEST_CHECK (s.zoneForValue (-16.01) == MeterZone::normal);
+
+        // Same shared rule for meter and reading: green zone -> green, at/over
+        // the red threshold -> red, otherwise default.
+        MeterSettings d;
+        TEST_CHECK (d.zoneForValue (-20.0) == MeterZone::green);
+        TEST_CHECK (d.zoneForValue (-14.0) == MeterZone::red);
+        TEST_CHECK (d.zoneForValue (-28.0) == MeterZone::normal);
+
+        const auto c = s.sanitised();
+        TEST_CHECK (c.zoneForValue (-13.9) == MeterZone::red);
+        TEST_CHECK (c.zoneForValue (-14.0) == MeterZone::green);
+    }
+
+    void testSettingsPersistence()
+    {
+        std::printf ("testSettingsPersistence\n");
+
+        MeterSettings s;
+        s.orientation = MeterOrientation::vertical;
+        s.size = MeterSizeMode::slim;
+        s.showLabel = false;
+        s.showScale = false;
+        s.greenLow = -25.0;
+        s.greenHigh = -17.0;
+        s.redThreshold = -12.0;
+        s.defaultColour = 0xff112233;
+        s.greenColour   = 0xff00ff00;
+        s.redColour     = 0xffff0000;
+
+        const auto xml = s.toXml();
+        TEST_CHECK (xml != nullptr);
+
+        const auto restored = MeterSettings::fromXml (*xml);
+        TEST_CHECK (restored == s);
+        TEST_CHECK (restored.defaultColour == 0xff112233);
+        TEST_CHECK (restored.redColour == 0xffff0000);
+
+        // A legacy state (only the original four attributes) must load with the
+        // new fields defaulted, not corrupted.
+        juce::XmlElement legacy ("LUFSMeterSettings");
+        legacy.setAttribute ("orientation", 1);
+        legacy.setAttribute ("size", 0);
+        legacy.setAttribute ("showLabel", false);
+        legacy.setAttribute ("showScale", false);
+
+        const auto fromLegacy = MeterSettings::fromXml (legacy);
+        TEST_CHECK (fromLegacy.orientation == MeterOrientation::vertical);
+        TEST_CHECK (fromLegacy.size == MeterSizeMode::slim);
+        TEST_CHECK (fromLegacy.greenHigh >= fromLegacy.greenLow);
+        TEST_CHECK (fromLegacy.redThreshold >= fromLegacy.greenHigh);
+    }
+
+    // -----------------------------------------------------------------------
+    // Measurement-pass lifecycle (transport + position)
+    // -----------------------------------------------------------------------
+
+    TransportTracker::BlockContext playing (double positionSeconds, double nowMs,
+                                            int numSamples = 480, double sampleRate = 48000.0)
+    {
+        TransportTracker::BlockContext b;
+        b.transportPlaying = true;
+        b.hasPosition = true;
+        b.positionSeconds = positionSeconds;
+        b.numSamples = numSamples;
+        b.sampleRate = sampleRate;
+        b.nowMs = nowMs;
+        return b;
+    }
+
+    void testLifecycleContinuousPlayback()
+    {
+        std::printf ("testLifecycleContinuousPlayback\n");
+
+        TransportTracker t;
+        t.reset();
+
+        // First playing block always starts a pass.
+        TEST_CHECK (t.update (playing (10.0, 0.0)));
+
+        // Continuous, jitter-free playback: no further resets.
+        TEST_CHECK (! t.update (playing (10.01, 10.0)));
+        TEST_CHECK (! t.update (playing (10.02, 20.0)));
+
+        // Small timing jitter must not be mistaken for a seek.
+        TEST_CHECK (! t.update (playing (10.02 + 0.01, 30.0)));
+        TEST_CHECK (! t.update (playing (10.03 + 0.02, 40.0)));
+    }
+
+    void testLifecycleSilenceDoesNotReset()
+    {
+        std::printf ("testLifecycleSilenceDoesNotReset\n");
+
+        // The tracker has no audio input at all, so a "silent" block cannot be
+        // distinguished from any other block: silence can never reset.
+        TransportTracker t;
+        t.reset();
+        TEST_CHECK (t.update (playing (5.0, 0.0)));
+
+        for (int i = 1; i <= 50; ++i)
+            TEST_CHECK (! t.update (playing (5.0 + 0.01 * i, 10.0 * i)));
+    }
+
+    void testLifecycleSeekResets()
+    {
+        std::printf ("testLifecycleSeekResets\n");
+
+        TransportTracker t;
+        t.reset();
+        t.update (playing (10.0, 0.0));
+        t.update (playing (10.01, 10.0));
+
+        // Forward seek -> new pass.
+        TEST_CHECK (t.update (playing (500.0, 20.0)));
+
+        // ...and playback continues cleanly afterwards.
+        TEST_CHECK (! t.update (playing (500.01, 30.0)));
+    }
+
+    void testLifecycleLoopWrapResets()
+    {
+        std::printf ("testLifecycleLoopWrapResets\n");
+
+        TransportTracker t;
+        t.reset();
+        t.update (playing (99.98, 0.0));
+
+        // Loop wraps back to its start -> new pass.
+        TEST_CHECK (t.update (playing (10.00, 10.0)));
+        TEST_CHECK (! t.update (playing (10.01, 20.0)));
+    }
+
+    void testLifecycleStopAndRestart()
+    {
+        std::printf ("testLifecycleStopAndRestart\n");
+
+        TransportTracker t;
+        t.reset();
+        t.update (playing (10.0, 0.0));
+        t.update (playing (10.01, 10.0));
+
+        // Transport stopped: no new pass, value stays frozen.
+        auto stopped = TransportTracker::BlockContext{};
+        stopped.transportPlaying = false;
+        stopped.hasPosition = true;
+        stopped.positionSeconds = 10.02;
+        stopped.nowMs = 20.0;
+        TEST_CHECK (! t.update (stopped));
+
+        // Play again from the *same* position -> new pass.
+        TEST_CHECK (t.update (playing (10.02, 30.0)));
+
+        // Repeated play/stop cycles each start a fresh pass.
+        for (int i = 0; i < 3; ++i)
+        {
+            stopped.nowMs = 100.0 + (double) i * 100.0;
+            TEST_CHECK (! t.update (stopped));
+            TEST_CHECK (t.update (playing (10.02, stopped.nowMs + 10.0)));
+        }
+    }
+
+    void testLifecycleGapResets()
+    {
+        std::printf ("testLifecycleGapResets\n");
+
+        TransportTracker t;
+        t.reset();
+        t.update (playing (10.0, 0.0));
+
+        // Host claims to be playing but stopped calling processBlock for > 1 s.
+        TEST_CHECK (t.update (playing (10.01, 5000.0)));
+    }
+
+    void testLifecycleWithoutPositionStillPlays()
+    {
+        std::printf ("testLifecycleWithoutPositionStillPlays\n");
+
+        // Hosts that report playing but no position accumulate continuously.
+        TransportTracker t;
+        t.reset();
+
+        auto b = playing (0.0, 0.0);
+        b.hasPosition = false;
+        TEST_CHECK (t.update (b));
+
+        for (int i = 1; i <= 20; ++i)
+        {
+            b.nowMs = 10.0 * i;
+            TEST_CHECK (! t.update (b));
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Threaded pipeline test
     // -----------------------------------------------------------------------
 
@@ -282,6 +586,19 @@ int main()
     testReset();
     testRelativeGating();
     testSilenceThenSignal();
+    testSilenceInMiddleKeepsValue();
+    testMultipleTakesSeparatedBySilence();
+    testZoneClassification();
+    testZoneSanitisation();
+    testZoneBoundaryConsistency();
+    testSettingsPersistence();
+    testLifecycleContinuousPlayback();
+    testLifecycleSilenceDoesNotReset();
+    testLifecycleSeekResets();
+    testLifecycleLoopWrapResets();
+    testLifecycleStopAndRestart();
+    testLifecycleGapResets();
+    testLifecycleWithoutPositionStillPlays();
     testEnginePipeline();
 
     std::printf ("\n%d checks, %d failures\n", test::checkCount(), test::failureCount());

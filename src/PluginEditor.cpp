@@ -1,28 +1,28 @@
 #include "PluginEditor.h"
 
+#include "MeterTheme.h"
 #include "PluginProcessor.h"
 #include "SettingsContent.h"
-
-namespace
-{
-    const juce::Colour backgroundColour = juce::Colour (0xff1a1a1a);
-}
 
 LufsMeterAudioProcessorEditor::LufsMeterAudioProcessorEditor (LufsMeterAudioProcessor& p)
     : juce::AudioProcessorEditor (&p),
       processorRef (p),
       meter_ (p.getMeasurementEngine())
 {
+    setLookAndFeel (&MeterTheme::lookAndFeel());
+
     setResizable (true, true);
-    if (auto* limits = getConstrainer())
-        limits->setSizeLimits (58, 50, 4000, 4000);
+    updateSizeLimits();
 
     addAndMakeVisible (meter_);
 
-    settingsButton_.setButtonText (juce::String::fromUTF8 ("\xE2\x9A\x99"));
-    settingsButton_.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-    settingsButton_.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff565656));
-    settingsButton_.setColour (juce::TextButton::textColourOnId, juce::Colour (0xff8f8f8f));
+    resetButton_.onClick = [this]
+    {
+        processorRef.resetMeasurement();
+        meter_.repaint();
+    };
+    addAndMakeVisible (resetButton_);
+
     settingsButton_.onClick = [this] { showSettings(); };
     addAndMakeVisible (settingsButton_);
 
@@ -36,16 +36,28 @@ LufsMeterAudioProcessorEditor::LufsMeterAudioProcessorEditor (LufsMeterAudioProc
 LufsMeterAudioProcessorEditor::~LufsMeterAudioProcessorEditor()
 {
     stopTimer();
+    setLookAndFeel (nullptr);
+}
+
+void LufsMeterAudioProcessorEditor::updateSizeLimits()
+{
+    if (auto* limits = getConstrainer())
+    {
+        if (processorRef.getSettings().orientation == MeterOrientation::horizontal)
+            limits->setSizeLimits (210, 96, 4000, 4000);
+        else
+            limits->setSizeLimits (150, 240, 4000, 4000);
+    }
 }
 
 juce::Point<int> LufsMeterAudioProcessorEditor::getPreferredSize (const MeterSettings& s) const
 {
     if (s.orientation == MeterOrientation::horizontal)
-        return s.size == MeterSizeMode::compact ? juce::Point<int> (410, 78)
-                                                : juce::Point<int> (410, 58);
+        return s.size == MeterSizeMode::compact ? juce::Point<int> (430, 104)
+                                                : juce::Point<int> (400, 82);
 
-    return s.size == MeterSizeMode::compact ? juce::Point<int> (74, 300)
-                                            : juce::Point<int> (66, 260);
+    return s.size == MeterSizeMode::compact ? juce::Point<int> (188, 360)
+                                            : juce::Point<int> (166, 312);
 }
 
 void LufsMeterAudioProcessorEditor::timerCallback()
@@ -55,41 +67,48 @@ void LufsMeterAudioProcessorEditor::timerCallback()
 
 void LufsMeterAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (backgroundColour);
+    g.fillAll (MeterTheme::windowBackground);
 }
 
 void LufsMeterAudioProcessorEditor::resized()
 {
     auto inner = getLocalBounds().reduced (outerPadding);
 
-    const auto orientation = processorRef.getSettings().orientation;
-
-    if (orientation == MeterOrientation::horizontal)
-    {
-        auto buttonArea = inner.removeFromRight (buttonSize);
-        settingsButton_.setBounds (buttonArea.withSizeKeepingCentre (buttonSize, buttonSize));
-    }
-    else
-    {
-        auto buttonRow = inner.removeFromTop (buttonSize);
-        settingsButton_.setBounds (buttonRow.removeFromRight (buttonSize));
-    }
+    // One consistent control strip in the upper-right, shared by both
+    // orientations, so the buttons can never overlap the scale or the reading.
+    auto controls = inner.removeFromTop (controlStripHeight);
+    settingsButton_.setBounds (controls.removeFromRight (buttonSize)
+                                   .withSizeKeepingCentre (buttonSize, buttonSize));
+    controls.removeFromRight (buttonGap);
+    resetButton_.setBounds (controls.removeFromRight (buttonSize)
+                                .withSizeKeepingCentre (buttonSize, buttonSize));
 
     meter_.setBounds (inner);
 }
 
 void LufsMeterAudioProcessorEditor::applyPopupSettings (const MeterSettings& s)
 {
+    const auto previous = processorRef.getSettings();
+
     processorRef.setSettings (s);
-    meter_.setSettings (s);
-    const auto preferred = getPreferredSize (s);
-    setSize (preferred.x, preferred.y);
+    meter_.setSettings (processorRef.getSettings());
+
+    // Only resize when the geometry changed; zone/colour edits must not move
+    // the window while the user drags a slider.
+    if (s.orientation != previous.orientation || s.size != previous.size)
+    {
+        updateSizeLimits();
+        const auto preferred = getPreferredSize (processorRef.getSettings());
+        setSize (preferred.x, preferred.y);
+    }
+
     repaint();
 }
 
 void LufsMeterAudioProcessorEditor::popupReset()
 {
     processorRef.resetMeasurement();
+    meter_.repaint();
 }
 
 void LufsMeterAudioProcessorEditor::showSettings()
@@ -108,6 +127,8 @@ void LufsMeterAudioProcessorEditor::showSettings()
             if (auto* editor = safe.getComponent())
                 editor->popupReset();
         });
+
+    content->setLookAndFeel (&MeterTheme::lookAndFeel());
 
     juce::CallOutBox::launchAsynchronously (std::move (content),
                                             settingsButton_.getScreenBounds(),

@@ -4,16 +4,40 @@
 
 namespace
 {
-    // Peak level below which the input is considered a genuine break in the
-    // signal (roughly -100 dBFS). This detects hard silence, not quiet music.
-    constexpr float silencePeakThreshold = 1.0e-5f;
+    /** Fills a TransportTracker block context from the host play head. Returns
+        false when the host cannot report transport information at all. */
+    bool readTransport (juce::AudioPlayHead* head, int numSamples, double sampleRate,
+                        TransportTracker::BlockContext& ctx)
+    {
+        ctx.numSamples = numSamples;
+        ctx.sampleRate = sampleRate;
+        ctx.nowMs      = juce::Time::getMillisecondCounter();
 
-    // How long a break must last before it counts as an interruption.
-    constexpr double silenceHangoverSeconds = 0.5;
+        if (head == nullptr)
+            return false;
 
-    // If processBlock is not called for this long (host stops processing while
-    // the transport is stopped), the next call starts a new measurement.
-    constexpr double blockGapResetMs = 1000.0;
+        const auto position = head->getPosition();
+
+        if (! position.hasValue())
+            return false;
+
+        ctx.transportPlaying = position->getIsPlaying();
+
+        if (const auto seconds = position->getTimeInSeconds())
+        {
+            ctx.hasPosition     = true;
+            ctx.positionSeconds = *seconds;
+        }
+        else if (const auto ppq = position->getPpqPosition())
+        {
+            // Fall back to musical time when a time base is unavailable.
+            const double bpm = position->getBpm().orFallback (120.0);
+            ctx.hasPosition     = true;
+            ctx.positionSeconds = *ppq * 60.0 / (bpm > 0.0 ? bpm : 120.0);
+        }
+
+        return true;
+    }
 }
 
 LufsMeterAudioProcessor::LufsMeterAudioProcessor()
@@ -28,9 +52,7 @@ LufsMeterAudioProcessor::~LufsMeterAudioProcessor() = default;
 void LufsMeterAudioProcessor::prepareToPlay (double sampleRate, int /*samplesPerBlock*/)
 {
     currentSampleRate_ = sampleRate > 0.0 ? sampleRate : 48000.0;
-    sessionInterrupted_ = true;
-    silentFrames_ = 0;
-    lastBlockTimeMs_ = juce::Time::getMillisecondCounter();
+    transportTracker_.reset();
 
     meter_.prepare (sampleRate, getTotalNumInputChannels());
 }
@@ -55,19 +77,6 @@ bool LufsMeterAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts
     return true;
 }
 
-bool LufsMeterAudioProcessor::isTransportPlaying() const
-{
-    if (auto* head = getPlayHead())
-    {
-        if (const auto position = head->getPosition())
-            return position->getIsPlaying();
-    }
-
-    // Host does not report transport state: assume playing and rely on signal
-    // detection instead.
-    return true;
-}
-
 void LufsMeterAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
@@ -77,45 +86,35 @@ void LufsMeterAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     if (numSamples <= 0)
         return;
 
-    const bool playing = isTransportPlaying();
+    TransportTracker::BlockContext ctx;
 
-    float peak = 0.0f;
+    const bool transportKnown = readTransport (getPlayHead(), numSamples,
+                                               currentSampleRate_, ctx);
 
-    for (int c = 0; c < buffer.getNumChannels(); ++c)
-        peak = juce::jmax (peak, buffer.getMagnitude (c, 0, numSamples));
-
-    const bool silent = peak < silencePeakThreshold;
-
-    const double now = juce::Time::getMillisecondCounter();
-    const double gapMs = now - lastBlockTimeMs_;
-    lastBlockTimeMs_ = now;
-
-    const bool active = playing && ! silent;
-
-    if (! active)
+    if (! transportKnown)
     {
-        // Interruption: keep the last trustworthy value visible (freeze) and
-        // stop feeding the measurement.
-        silentFrames_ = silent ? silentFrames_ + numSamples : 0;
+        // A host that cannot report transport is treated as continuously
+        // playing: the measurement accumulates exactly like a standalone
+        // loudness meter and is only cleared by the manual Reset button.
+        ctx.transportPlaying = true;
+        ctx.hasPosition      = false;
+    }
 
-        const int hangoverFrames = (int) (silenceHangoverSeconds * currentSampleRate_);
+    if (transportTracker_.update (ctx))
+    {
+        // A new pass starts here. Discard anything queued from the previous
+        // pass so no stale audio can leak into the new measurement; the reset
+        // itself is performed on the measurement thread.
+        meter_.requestReset (true);
+    }
 
-        if (! playing || silentFrames_ >= hangoverFrames)
-            sessionInterrupted_ = true;
-
+    if (! ctx.transportPlaying)
+    {
+        // Transport is stopped or paused: freeze the displayed value by not
+        // feeding the meter. (Silence while *playing* is still measured.)
         return;
     }
 
-    // Audio (re)started: begin a fresh measurement that excludes everything
-    // accumulated before the interruption. Queued samples are kept because the
-    // queue holds only new-session audio by now.
-    if (sessionInterrupted_ || gapMs > blockGapResetMs)
-    {
-        meter_.requestReset (false);
-        sessionInterrupted_ = false;
-    }
-
-    silentFrames_ = 0;
     meter_.pushBlock (buffer, numSamples);
 }
 
