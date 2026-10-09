@@ -102,8 +102,8 @@ void MeterComponent::paintHorizontal (juce::Graphics& g, juce::Rectangle<int> ar
 
     const int numFont = compact ? 34 : 26;
     const int unitFont = compact ? 12 : 10;
-    const int unitWidth = compact ? 42 : 34;
-    const int valueWidth = compact ? 120 : 100;
+    const int unitWidth = compact ? 38 : 32;
+    const int valueWidth = compact ? 132 : 108;
     const int labelWidth = compact ? 52 : 44;
 
     juce::Rectangle<int> labelArea;
@@ -158,7 +158,9 @@ void MeterComponent::paintHorizontal (juce::Graphics& g, juce::Rectangle<int> ar
     auto numRect = valueArea.withTrimmedRight (unitWidth + gap);
     numRect = numRect.withSizeKeepingCentre (numRect.getWidth(), numFont)
                      .translated (0, (int) centreY - numRect.getCentreY());
-    g.drawText (formatValue (hasValue, value), numRect, juce::Justification::centredRight, false);
+    // Fitted so two-digit readings (e.g. "-14.2") never lose their decimals.
+    g.drawFittedText (formatValue (hasValue, value), numRect,
+                      juce::Justification::centredRight, 1, 0.6f);
 
     g.setColour (dimColour);
     g.setFont ((float) unitFont);
@@ -255,7 +257,7 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
             valueRect.translate ((int) (-signWidth * 0.5f), 0);
         }
 
-        g.drawText (valueText, valueRect, juce::Justification::centred, false);
+        g.drawFittedText (valueText, valueRect, juce::Justification::centred, 1, 0.6f);
     }
 
     g.setColour (dimColour);
