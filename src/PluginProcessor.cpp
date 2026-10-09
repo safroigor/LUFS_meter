@@ -11,12 +11,14 @@ LufsMeterAudioProcessor::LufsMeterAudioProcessor()
 
 LufsMeterAudioProcessor::~LufsMeterAudioProcessor() = default;
 
-void LufsMeterAudioProcessor::prepareToPlay (double /*sampleRate*/, int /*samplesPerBlock*/)
+void LufsMeterAudioProcessor::prepareToPlay (double sampleRate, int /*samplesPerBlock*/)
 {
+    meter_.prepare (sampleRate, getTotalNumInputChannels());
 }
 
 void LufsMeterAudioProcessor::releaseResources()
 {
+    meter_.release();
 }
 
 bool LufsMeterAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -39,7 +41,8 @@ void LufsMeterAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     juce::ScopedNoDenormals noDenormals;
 
     // The plugin is a meter and must not alter the incoming audio signal.
-    juce::ignoreUnused (buffer);
+    // The measurement never blocks or allocates on this thread.
+    meter_.pushBlock (buffer, buffer.getNumSamples());
 }
 
 juce::AudioProcessorEditor* LufsMeterAudioProcessor::createEditor()

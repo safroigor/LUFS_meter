@@ -2,12 +2,13 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "MeasurementEngine.h"
+
 /**
     VST3 audio processor for the LUFS Meter.
 
     This plugin is a measurement device only: it never modifies the audio
-    signal. Stage 1 provides the minimal, buildable plugin skeleton; the
-    loudness measurement engine is integrated in later stages.
+    signal.
 */
 class LufsMeterAudioProcessor final : public juce::AudioProcessor
 {
@@ -41,6 +42,14 @@ public:
     void getStateInformation (juce::MemoryBlock&) override {}
     void setStateInformation (const void*, int) override {}
 
+    /** UI access to the latest measurement snapshot. */
+    MeasurementEngine& getMeasurementEngine() noexcept { return meter_; }
+
+    /** Restart the Integrated Loudness measurement. */
+    void resetMeasurement() { meter_.requestReset(); }
+
 private:
+    MeasurementEngine meter_;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LufsMeterAudioProcessor)
 };

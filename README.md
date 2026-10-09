@@ -7,9 +7,9 @@ bar scale.
 The plugin is a **measurement device**. It never modifies the incoming audio
 signal.
 
-> **Status: early development (Stage 1).** The repository currently builds a
-> minimal, loadable VST3 skeleton. The measurement engine and the meter UI are
-> implemented in later stages. See [docs/development.md](docs/development.md)
+> **Status: development.** Stage 1 (reproducible VST3 build) and Stage 2
+> (measurement engine + unit tests) are complete. The meter UI is Stage 3. See
+> [docs/development.md](docs/development.md) and [docs/testing.md](docs/testing.md)
 > for the exact state.
 
 ## Features (target)
@@ -62,13 +62,19 @@ The build wrapper imports the MSVC environment (required by Ninja) and then runs
 CMake configure + build:
 
 ```powershell
-pwsh -File scripts/build.ps1 -Preset release
+powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Preset release
 ```
 
 Debug build:
 
 ```powershell
-pwsh -File scripts/build.ps1 -Preset debug
+powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Preset debug
+```
+
+Run the tests:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Preset release -Test
 ```
 
 Build artefacts:

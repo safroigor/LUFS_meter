@@ -29,14 +29,27 @@ The plugin separates three concerns:
 - Never modifies the audio signal.
 
 ### LoudnessMeter
-- Wraps libebur128 and owns its `ebur128_state`.
-- Runs on a dedicated measurement thread (see decisions) that drains the SPSC
-  ring buffer and calls `ebur128_add_frames_float`.
-- Computes `ebur128_loudness_global` at a bounded rate and publishes the result.
-- Handles reset (destroy + re-init) entirely on the measurement thread.
-- Does not depend on the GUI or on VST3, so it can be unit-tested outside a DAW.
+- Core wrapper around libebur128; owns the `ebur128_state`.
+- Single-threaded by contract; has no JUCE/GUI dependency, so it is unit-tested
+  directly (see `tests/TestMain.cpp`).
+- Uses the exact (non-histogram) mode to avoid 0.1 LU quantisation.
 - Maps libebur128's `-HUGE_VAL` (no block above the absolute gate) to an explicit
-  "no valid value" state instead of a fake `0 LUFS`.
+  "no valid value" result instead of a fake `0 LUFS`.
+
+### MeasurementEngine
+- Owns a `LoudnessMeter`, a lock-free SPSC ring buffer (`juce::AbstractFifo`)
+  and a worker thread.
+- Audio thread: copies interleaved samples into the ring buffer and sets an
+  atomic reset flag. No allocation, no locking, no library calls.
+- Worker thread: drains the buffer, feeds the meter, computes Integrated LUFS at
+  a bounded rate (20 ms period) and publishes `{hasValue, value}` atomically.
+- Reset (destroy + re-init) happens entirely on the worker thread.
+
+### PluginProcessor
+- Receives audio buffers from the host.
+- Delegates to `MeasurementEngine::pushBlock` in `processBlock`.
+- Exposes an atomic snapshot and a reset request to the editor.
+- Never modifies the audio signal.
 
 ### PluginEditor
 - Displays the numeric Integrated LUFS value rounded to 0.1 LU.
@@ -55,9 +68,8 @@ The plugin separates three concerns:
 
 Reset is requested through an atomic flag and executed on the measurement
 thread, so it can neither race with `add_frames` nor corrupt the accumulator.
-
-> Stage 1 contains only the buildable skeleton. The ring buffer, measurement
-> thread and atomics are implemented in Stage 2.
+After a reset, `hasValue()` is false until at least one full gating block of new
+audio has been measured, so a stale value is never shown as a new result.
 
 ## Data flow
 

@@ -3,9 +3,9 @@
 This document records the test matrix, the reference values, the accepted
 tolerances and the observed results.
 
-> **Stage 1 status:** only the buildable plugin skeleton exists. No measurement
-> tests have been run yet, and no build has been verified in a host. This file
-> will be populated as tests are added in Stage 2 and validated in Stage 4.
+> **Stage 2 status:** the measurement engine is implemented and its unit tests
+> pass. The Stage 2 plugin binary has not yet been reloaded in REAPER (the host
+> holds the DLL). The meter UI is Stage 3.
 
 ## Tolerance policy
 
@@ -14,52 +14,53 @@ Tolerances are taken from the source that defines them. A universal tolerance is
 
 - EBU Tech 3341 minimum-requirement signals: Integrated/Momentary/Short-term
   `±0.1 LUFS` where the document specifies it.
-- Values synthesised by this project (not from a standard) use a tolerance of
-  `±0.05 LU`, chosen to be tighter than the standard's meter tolerance; the
-  source of the expected value is recorded per test.
+- Expectations synthesized by this project (mono, sample-rate sweep) use a
+  documented tolerance, and the source is recorded per test. No single universal
+  tolerance is assumed.
 
-## Planned test matrix
+## Executed tests (Stage 2)
 
-| # | Signal | Sample rate | Channels | Expected | Tolerance | Status |
-|---|---|---|---|---|---|---|
-| 1 | 1 kHz stereo sine, −23 dBFS in phase, 20 s | 48 kHz | stereo | I = −23.0 LUFS | ±0.1 (Tech 3341) | pending |
-| 2 | −33 dBFS stereo sine | 48 kHz | stereo | I = −33.0 LUFS | ±0.1 | pending |
-| 3 | Digital silence | 48 kHz | stereo | no valid value | — | pending |
-| 4 | Very low level (−60 dBFS) | 48 kHz | stereo | gated / no value | per standard | pending |
-| 5 | Absolute gate boundary (−70 LUFS) | 48 kHz | stereo | gated correctly | per standard | pending |
-| 6 | Relative gate behaviour (two-level material) | 48 kHz | stereo | per BS.1770 | ±0.1 | pending |
-| 7 | 1 kHz sine | 44.1 kHz | stereo | see #1 | ±0.1 | pending |
-| 8 | 1 kHz sine | 96 kHz | stereo | see #1 | ±0.1 | pending |
-| 9 | 1 kHz sine | 192 kHz | stereo | see #1 | ±0.1 | pending |
-| 10 | 1 kHz sine | 48 kHz | mono | see #1 | ±0.1 | pending |
-| 11 | Reset mid-stream starts a new measurement | 48 kHz | stereo | new value independent | exact | pending |
-| 12 | Long accumulation (>= 20 min) stability | 48 kHz | stereo | stable | ±0.05 | pending |
-| 13 | EBU Loudness Test Set v5.0 signals | 48 kHz | mono/stereo | per Tech 3341 | ±0.1 | pending |
-| 14 | Cross-check vs independent meter (Melda MLoudnessAnalyzer) | 48 kHz | stereo | matches | ±0.1 | pending |
+Executable: `build/release/tests/LufsMeterTests_artefacts/Release/LufsMeterTests.exe`
+Run via CTest. Result: **27 checks, 0 failures**.
 
-## Test infrastructure
+| # | Test | Signal / action | Expected | Tolerance | Result |
+|---|---|---|---|---|---|
+| 1 | `testStereoReference` | stereo 1 kHz sine, −23 dBFS peak, in phase, 20 s @ 48 kHz | −23.0 LUFS | ±0.1 (EBU Tech 3341 case 1) | pass |
+| 2 | `testLevelScaling` | stereo sine at −33 / −18 dBFS | −33.0 / −18.0 LUFS | ±0.1 | pass |
+| 3 | `testSilence` | digital silence, 2 s | no value (not 0 LUFS) | — | pass |
+| 4 | `testLowLevelAboveGate` | stereo sine −60 dBFS | −60.0 LUFS | ±0.1 | pass |
+| 5 | `testBelowAbsoluteGate` | stereo sine −75 dBFS (below −70 gate) | no value | — | pass |
+| 6 | `testMonoReference` | mono sine, −23 dBFS peak | −26.0 LUFS | ±0.15 (half energy of stereo) | pass |
+| 7 | `testSampleRates` | stereo −23 dBFS @ 44.1 / 88.2 / 96 / 192 kHz | −23.0 LUFS | ±0.1 | pass |
+| 8 | `testBlockSizeIndependence` | same signal fed in 1 / 512 / 65536-frame chunks | −23.0 LUFS | ±0.1 | pass |
+| 9 | `testNoValueBeforeOneBlock` | 200 ms of audio (< one 400 ms block) | no value | — | pass |
+| 10 | `testReset` | measure −23, reset, measure −33 | reset discards; then −33.0 | ±0.1 | pass |
+| 11 | `testRelativeGating` | 10 s −23 LUFS + 10 s −40 LUFS | −23.0 LUFS (quiet part below −10 LU gate) | ±0.1 | pass |
+| 12 | `testSilenceThenSignal` | 5 s silence + 20 s −23 dBFS | −23.0 LUFS | ±0.1 | pass |
+| 13 | `testEnginePipeline` | MeasurementEngine: 5 s −23 dBFS pushed in 512-frame blocks | −23.0 LUFS | ±0.1 | pass |
 
-- Tests are built with CTest.
-- The measurement core is testable without a DAW.
+### Notes
 
-## Build verification (Stage 1)
+- Tolerances for the −23 dBFS reference follow EBU Tech 3341 (±0.1 LU).
+  Expectations synthesized by this project (mono, sample-rate sweep) use the
+  same or a documented tolerance; the source is stated per row.
+- A first version of `testSilenceThenSignal` used a 5 s tone and read
+  −23.13 LUFS. This is correct BS.1770 behaviour: gating blocks that span the
+  silence→tone transition are above the absolute gate and are included. The test
+  now uses a longer tone so this expected boundary contribution is negligible,
+  and the ±0.1 LU tolerance is meaningful.
+- The exact (non-histogram) mode is used, so no 0.1 LU quantisation applies.
 
-| Check | Result | Evidence |
-|---|---|---|
-| CMake configure (Release, Ninja, MSVC) | passed | `cmake --preset release` |
-| Compilation of `ebur128.c` (C) | passed | object built, `ebur128.lib` linked |
-| VST3 bundle produced | passed | `build/release/LUFSMeter_artefacts/Release/VST3/LUFS Meter.vst3` |
-| VST3 entry points exported | passed | `dumpbin /exports` shows `GetPluginFactory`, `InitDll`, `ExitDll` |
-| Plugin copied to host scan path | passed | `%LOCALAPPDATA%\Programs\Common\VST3\LUFS Meter.vst3` |
-| Load in REAPER | **not yet verified** | requires a host scan; not automated |
-| Measurement tests | **not run** | measurement engine not implemented yet |
+## Toolchain used for these results
 
-Toolchain actually used: CMake 4.4.4, Ninja 1.13.2, MSVC 19.44.35229
-(v143 toolset 14.44.35207), Windows SDK 10.0.26100.0, JUCE 8.0.15,
-libebur128 v1.2.6.
+CMake 4.4.4, Ninja 1.13.2, MSVC 19.44.35229 (toolset 14.44.35207),
+Windows SDK 10.0.26100.0, JUCE 8.0.15, libebur128 v1.2.6.
 
 ## Not yet verified
 
-- Plugin load in REAPER.
-- EBU test set comparison.
-- Any loudness measurement (Stage 2).
+- Plugin load of the **Stage 2** build in REAPER (the host currently has the
+  plugin loaded, which locks the DLL; re-copy after unloading).
+- EBU Loudness Test Set v5.0 files (external, 48 kHz).
+- Cross-check against an independent meter (Melda MLoudnessAnalyzer).
+- Long-duration accumulation stability.
+- 5.1 / other channel layouts.

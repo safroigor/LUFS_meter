@@ -59,7 +59,9 @@ juce_add_plugin(LUFSMeter
 
 target_sources(LUFSMeter PRIVATE
     src/PluginProcessor.cpp
-    src/PluginEditor.cpp)
+    src/PluginEditor.cpp
+    src/LoudnessMeter.cpp
+    src/MeasurementEngine.cpp)
 
 target_include_directories(LUFSMeter PRIVATE src)
 
@@ -76,3 +78,12 @@ target_link_libraries(LUFSMeter
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+include(CTest)
+
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()

@@ -45,13 +45,13 @@ Ninja needs the MSVC environment, so use the wrapper script. It locates
 
 ```powershell
 # Configure + build (Release)
-pwsh -File scripts/build.ps1 -Preset release
+powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Preset release
 
 # Configure + build (Debug)
-pwsh -File scripts/build.ps1 -Preset debug
+powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Preset debug
 
 # Configure + build + run tests
-pwsh -File scripts/build.ps1 -Preset debug -Test
+powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Preset release -Test
 ```
 
 Equivalent manual steps from an *x64 Native Tools Command Prompt for VS 2022*:
