@@ -19,6 +19,10 @@ namespace
         constexpr int   marginY = 8;
         constexpr float segmentRadius = 3.0f;
         constexpr double tickStep = 6.0;        // LUFS between scale labels
+
+        // Compact mode: the continuous fill spans the whole main display area.
+        constexpr float compactFillRadius = 3.0f;
+        constexpr float compactFillAlpha  = 0.18f; // substantially subtler than the old segmented fill
     }
 
     // Shared typography and spacing for the secondary readouts (TP, LS, LM),
@@ -35,13 +39,21 @@ namespace
         constexpr int   horizontalTopInset = 1; // row top -> first text line
     }
 
+    // Compact mode arranges TP / LS / LM as three label-over-value columns. The
+    // value type starts a little larger than Vertical's readouts (targeting a
+    // noticeably larger secondary value) and only shrinks if a column would not
+    // fit the value safely.
+    namespace CompactReadout
+    {
+        constexpr float maxFontScale = 1.10f;
+        constexpr float minFontScale = 0.62f;
+    }
+
     const char* const modeLabel = "LUFS-I";
 
     float proportion (double value)
     {
-        return (float) juce::jlimit (0.0, 1.0,
-                                     (value - MeterSettings::scaleMinLufs)
-                                         / (MeterSettings::scaleMaxLufs - MeterSettings::scaleMinLufs));
+        return (float) MeterSettings::scaleProportion (value);
     }
 
     juce::Colour colourForZone (MeterZone zone, const MeterSettings& s)
@@ -164,6 +176,28 @@ namespace
             g.fillRoundedRectangle (rectFor (i, segmentPitch, gap), Layout::segmentRadius);
         }
     }
+
+    // --- Compact mode: continuous moving fill --------------------------------
+
+    /** Fills one continuous bottom-anchored shape whose top edge is at `top`.
+        Only the top corners are rounded, matching the panel language, and the
+        radius collapses on very short fills so the shape never distorts. */
+    void fillContinuousFill (juce::Graphics& g, juce::Rectangle<float> area, float top)
+    {
+        const float radius = juce::jlimit (0.0f, Layout::compactFillRadius,
+                                           (area.getBottom() - top) * 0.5f);
+
+        juce::Path path;
+        path.startNewSubPath (area.getX(), area.getBottom());
+        path.lineTo (area.getX(), top + radius);
+        path.quadraticTo (area.getX(), top, area.getX() + radius, top);
+        path.lineTo (area.getRight() - radius, top);
+        path.quadraticTo (area.getRight(), top, area.getRight(), top + radius);
+        path.lineTo (area.getRight(), area.getBottom());
+        path.closeSubPath();
+
+        g.fillPath (path);
+    }
 }
 
 MeterComponent::MeterComponent (const MeasurementEngine& engine)
@@ -181,17 +215,30 @@ void MeterComponent::paint (juce::Graphics& g)
 {
     const auto reading = engine_.getReading();
 
-    if (settings_.orientation == MeterOrientation::horizontal)
-        paintHorizontal (g, getLocalBounds(), reading);
-    else
-        paintVertical (g, getLocalBounds(), reading);
+    switch (settings_.displayMode)
+    {
+        case MeterDisplayMode::vertical:
+            paintVertical (g, getLocalBounds(), reading);
+            break;
+
+        case MeterDisplayMode::compact:
+            paintCompact (g, getLocalBounds(), reading);
+            break;
+
+        case MeterDisplayMode::horizontal:
+        default:
+            paintHorizontal (g, getLocalBounds(), reading);
+            break;
+    }
 }
 
 void MeterComponent::paintHorizontal (juce::Graphics& g, juce::Rectangle<int> area,
                                       const MeasurementEngine::Reading& reading)
 {
     const auto s = settings_.sanitised();
-    const bool compact = s.size == MeterSizeMode::compact;
+    // Vertical and Horizontal are the compact-geometry layouts from v1.2.0
+    // (the standalone Slim preset is retired); Compact is a separate paint path.
+    constexpr bool compact = true;
 
     const bool hasValue = reading.hasIntegrated;
     const double value = roundToDisplay (reading.integrated);
@@ -233,7 +280,8 @@ void MeterComponent::paintHorizontal (juce::Graphics& g, juce::Rectangle<int> ar
     // Centre the whole secondary group on the segmented scale's centre; the
     // group stays inside the full row so it cannot clip at small widths.
     if (showReadouts)
-        paintReadouts (g, readoutArea, reading, true, barArea.getCentreX());
+        paintReadouts (g, readoutArea, reading, ReadoutLayout::horizontalRow,
+                       barArea.getCentreX(), 1.0f, MeterTheme::textDim);
 
     // Shared visual centreline: label, meter and reading all centre on this Y.
     // The scale ruler/ticks are an independent group below the meter.
@@ -312,7 +360,9 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
                                     const MeasurementEngine::Reading& reading)
 {
     const auto s = settings_.sanitised();
-    const bool compact = s.size == MeterSizeMode::compact;
+    // Vertical and Horizontal are the compact-geometry layouts from v1.2.0
+    // (the standalone Slim preset is retired); Compact is a separate paint path.
+    constexpr bool compact = true;
 
     const bool hasValue = reading.hasIntegrated;
     const double value = roundToDisplay (reading.integrated);
@@ -413,12 +463,90 @@ void MeterComponent::paintVertical (juce::Graphics& g, juce::Rectangle<int> area
                                               - meterArea.getX());
     paintReadouts (g, juce::Rectangle<int> (meterArea.getX(), meterArea.getY(),
                                             readoutWidth, meterArea.getHeight()),
-                   reading, false, 0);
+                   reading, ReadoutLayout::verticalColumn, 0, 1.0f, MeterTheme::textDim);
+}
+
+void MeterComponent::paintCompact (juce::Graphics& g, juce::Rectangle<int> area,
+                                   const MeasurementEngine::Reading& reading)
+{
+    const auto s = settings_.sanitised();
+    const bool hasValue = reading.hasIntegrated;
+    const double value = roundToDisplay (reading.integrated);
+
+    // 1. Panel background.
+    g.setColour (MeterTheme::panelBackground);
+    g.fillRect (area);
+
+    // 2. One continuous, bottom-anchored fill: the main display background. Its
+    //    top edge moves with the Integrated value using the shared scale mapping
+    //    and the configured zone colours. No fill when there is no valid value.
+    if (hasValue)
+    {
+        const float fillHeight = (float) MeterSettings::scaleProportion (value)
+                                     * (float) area.getHeight();
+
+        if (fillHeight > 0.5f)
+        {
+            g.setColour (colourForZone (s.zoneForValue (value), s)
+                             .withMultipliedAlpha (Layout::compactFillAlpha));
+
+            fillContinuousFill (g, area.toFloat(), (float) area.getBottom() - fillHeight);
+        }
+    }
+
+    // 4/5. Text on top of the fill. The secondary row is three two-line columns
+    //      (label above value); choose the largest value type that fits one
+    //      column, then give the LUFS-I reading the remaining height.
+    const int slot = juce::jmax (1, area.getWidth() / 3);
+    const int valueBudget = slot - 6;
+
+    auto compactValueWidth = [] (float fontScale)
+    {
+        return textWidth (MeterTheme::mediumFont (Readout::valueFontHeight * fontScale), "-00.0");
+    };
+
+    float readoutScale = CompactReadout::maxFontScale;
+
+    while (readoutScale > CompactReadout::minFontScale
+               && compactValueWidth (readoutScale) > valueBudget)
+        readoutScale -= 0.02f;
+
+    const juce::Font readoutValueFont = MeterTheme::mediumFont (Readout::valueFontHeight * readoutScale);
+    const juce::Font readoutLabelFont = MeterTheme::regularFont (Readout::labelFontHeight * readoutScale);
+    const int readoutBand = (int) std::lround (readoutLabelFont.getHeight())
+                            + juce::jmax (1, juce::roundToInt (Readout::lineGap * readoutScale))
+                            + (int) std::lround (readoutValueFont.getHeight())
+                            + 4;
+
+    auto textArea = area;
+    auto readoutArea = textArea.removeFromBottom (readoutBand);
+
+    if (s.showLabel)
+    {
+        auto labelArea = textArea.removeFromTop (juce::jmin (14, juce::jmax (10, textArea.getHeight() / 6)));
+        g.setColour (MeterTheme::textDim);
+        g.setFont (MeterTheme::regularFont (11.5f));
+        g.drawText (modeLabel, labelArea, juce::Justification::centred, false);
+    }
+
+    // The main reading keeps its previous size (up to 54 px) and stays centred in
+    // the space above the secondary row.
+    const juce::Font valueFont = MeterTheme::mediumFont (
+        juce::jlimit (28.0f, 54.0f, (float) textArea.getHeight() * 0.64f));
+
+    g.setColour (hasValue ? colourForZone (s.zoneForValue (value), s) : MeterTheme::textDim);
+    g.setFont (valueFont);
+    g.drawFittedText (formatValue (hasValue, value), textArea,
+                      juce::Justification::centred, 1, 0.5f);
+
+    paintReadouts (g, readoutArea, reading, ReadoutLayout::columns,
+                   readoutArea.getCentreX(), readoutScale, MeterTheme::textSecondary);
 }
 
 void MeterComponent::paintReadouts (juce::Graphics& g, juce::Rectangle<int> area,
                                     const MeasurementEngine::Reading& reading,
-                                    bool horizontalRow, int referenceCentreX)
+                                    ReadoutLayout layout, int referenceCentreX,
+                                    float fontScale, juce::Colour labelColour)
 {
     if (area.getWidth() <= 0 || area.getHeight() <= 0)
         return;
@@ -446,10 +574,10 @@ void MeterComponent::paintReadouts (juce::Graphics& g, juce::Rectangle<int> area
 
     constexpr int count = 3;
 
-    const juce::Font labelFont = MeterTheme::regularFont (Readout::labelFontHeight);
-    const juce::Font valueFont = MeterTheme::mediumFont (Readout::valueFontHeight);
+    const juce::Font labelFont = MeterTheme::regularFont (Readout::labelFontHeight * fontScale);
+    const juce::Font valueFont = MeterTheme::mediumFont (Readout::valueFontHeight * fontScale);
 
-    if (horizontalRow)
+    if (layout == ReadoutLayout::horizontalRow)
     {
         // One line per group: a smaller label followed by a larger value, all
         // vertically centred on a shared centreline. The whole group is centred
@@ -476,7 +604,7 @@ void MeterComponent::paintReadouts (juce::Graphics& g, juce::Rectangle<int> area
             const int labelW = textWidth (labelFont, items[i].label);
 
             g.setFont (labelFont);
-            g.setColour (MeterTheme::textDim);
+            g.setColour (labelColour);
             g.drawFittedText (items[i].label,
                               rowAtCentreY ({ x, area.getY(), labelW, area.getHeight() },
                                             centreY, (int) std::lround (labelFont.getHeight()) + 2),
@@ -491,6 +619,40 @@ void MeterComponent::paintReadouts (juce::Graphics& g, juce::Rectangle<int> area
                               juce::Justification::centredLeft, 1, 0.8f);
 
             x += labelW + Readout::labelGap + valueW + Readout::itemGap;
+        }
+
+        return;
+    }
+
+    if (layout == ReadoutLayout::columns)
+    {
+        // Compact: three equal columns, each a two-line group with the label
+        // directly above its larger value, both centred in the column. This gives
+        // the values the full column width (so they can be larger than in an
+        // inline row) while keeping the groups evenly spread and collision-free.
+        const int labelLine = (int) std::lround (labelFont.getHeight());
+        const int valueLine = (int) std::lround (valueFont.getHeight());
+        const int lineGap   = juce::jmax (1, juce::roundToInt (Readout::lineGap * fontScale));
+        const int groupH    = labelLine + lineGap + valueLine;
+
+        const int top = area.getY() + juce::jmax (0, (area.getHeight() - groupH) / 2);
+        const float slot = (float) area.getWidth() / (float) count;
+
+        for (int i = 0; i < count; ++i)
+        {
+            const int colX = area.getX() + (int) std::lround ((float) i * slot);
+            const int colW = (int) std::lround (slot);
+
+            g.setFont (labelFont);
+            g.setColour (labelColour);
+            g.drawFittedText (items[i].label, { colX, top, colW, labelLine },
+                              juce::Justification::centred, 1, 0.7f);
+
+            g.setFont (valueFont);
+            g.setColour (items[i].colour);
+            g.drawFittedText (items[i].value,
+                              { colX, top + labelLine + lineGap, colW, valueLine },
+                              juce::Justification::centred, 1, 0.8f);
         }
 
         return;
@@ -524,7 +686,7 @@ void MeterComponent::paintReadouts (juce::Graphics& g, juce::Rectangle<int> area
     for (int i = 0; i < count; ++i)
     {
         g.setFont (labelFont);
-        g.setColour (MeterTheme::textDim);
+        g.setColour (labelColour);
         g.drawFittedText (items[i].label,
                           { area.getX(), y, area.getWidth(), labelLine },
                           juce::Justification::centred, 1, 0.7f);

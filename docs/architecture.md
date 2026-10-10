@@ -73,27 +73,66 @@ The plugin separates three concerns:
 
 ### PluginEditor
 - Displays the numeric Integrated LUFS value rounded to 0.1 LU.
+- Has three mutually exclusive display modes (`MeterDisplayMode`):
+  - **Vertical** — the existing vertical meter.
+  - **Horizontal** — the existing horizontal meter.
+  - **Compact** — a nearly square digital meter (preferred 220 × 190, minimum
+    190 × 170) whose main display area is one continuous, bottom-anchored fill
+    (`MeterComponent::paintCompact`). The fill's top edge moves vertically with
+    the Integrated value on the shared `MeterSettings::scaleProportion` mapping
+    and takes the configured zone colour at low alpha (subtler than the other
+    modes, so it stays a background element). There is no segmented bar, ruler,
+    tick labels, marker or standalone meter; the large centred reading and the
+    TP / LS / LM row sit on top of the fill. The secondary row is three
+    label-over-value columns (each label directly above its larger value), the
+    same hierarchy as Vertical mode.
 - Displays a compact, numeric-only secondary block for True Peak, Short-Term and
   Momentary, labelled in the display order **TP, LS, LM**, subordinate to the
-  Integrated reading: a single row above the segmented scale in horizontal
-  orientation, and three stacked two-line groups (label above a larger value) to
-  the left of the scale in vertical orientation. Numeric values are larger and
-  heavier than their abbreviations. No separate meters are added. Unavailable
-  values use the em-dash placeholder `—`; True Peak turns red at or above
-  `0.0 dBTP`.
-- Draws a segmented bar (horizontal or vertical) via `MeterComponent`; segment
-  and numeric-reading colour both come from the configured zones via the shared
-  `MeterSettings::zoneForValue`, not from drawing code.
+  Integrated reading. Numeric values are larger and heavier than their
+  abbreviations. No separate meters are added. Unavailable values use the
+  em-dash placeholder `—`; True Peak turns red at or above `0.0 dBTP`.
+- Draws the segmented bar (horizontal or vertical) or the Compact background
+  indicator via `MeterComponent`; segment and numeric-reading colour both come
+  from the configured zones via the shared `MeterSettings::zoneForValue`, not
+  from drawing code.
 - Uses a shared visual system: `MeterTheme` (palette and typography) and
-  `MeterLookAndFeel` (control styling); Reset and Settings are vector
-  `IconButton`s in a thin upper-right control strip.
-- Provides a settings panel: orientation (Horizontal/Vertical), size
-  (Slim/Compact), Show label, Show scale, green low/high, red threshold, and the
-  default/green/red colours.
+  `MeterLookAndFeel` (control styling); Reset, Settings and About are vector
+  `IconButton`s in a thin upper-right control strip. The About/info button is
+  present in every display mode and opens `AboutContent` (plugin metadata,
+  measurement descriptions and third-party attributions) in a `CallOutBox`.
+- Provides a settings panel: a three-option display-mode selector
+  (Vertical/Horizontal/Compact), Show label, Show scale, green low/high, red
+  threshold, and the default/green/red colours.
 - Settings are persisted in the plugin state (saved/restored with the host
   project).
-- Reads only the coherent snapshot; performs no DSP. Changing orientation or size
+- Reads only the coherent snapshot; performs no DSP. Changing the display mode
   never resets the measurement.
+
+### Display modes and settings persistence
+
+`MeterSettings` stores a single authoritative `MeterDisplayMode`
+(`vertical`, `horizontal`, `compact`). The legacy `MeterOrientation` and
+`MeterSizeMode` enums remain only as the saved-state vocabulary:
+
+- `toXml()` writes `displayMode` **and** the derived legacy `orientation`/`size`
+  attributes, so an older build still loads a sensible layout.
+- `fromXml()` uses `displayMode` whenever it is present (so repeated save/load
+  never changes the selected mode). Otherwise it migrates from the legacy pair:
+
+  | legacy orientation | legacy size | restored mode |
+  |---|---|---|
+  | vertical | slim | Vertical |
+  | vertical | compact | Vertical |
+  | horizontal | slim | Horizontal |
+  | horizontal | compact | Horizontal |
+  | absent | absent | Horizontal (default) |
+
+  Slim and Compact both collapse to their orientation's single display mode; the
+  legacy `size` attribute is intentionally ignored in the migration so the result
+  is deterministic. Because an older build cannot know about Compact, a Compact
+  state is written with `orientation = horizontal`, so old builds show the
+  Horizontal layout (the closest legacy layout) and the meter keeps working.
+
 
 ## Measurement lifecycle (transport-based)
 

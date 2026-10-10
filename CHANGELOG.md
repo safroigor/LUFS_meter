@@ -2,6 +2,52 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.3.0] - 2026-10-10
+
+### Added
+- **Three mutually exclusive display modes**, selected in one settings selector:
+  **Vertical** and **Horizontal** (the existing segmented meters, unchanged) and
+  **Compact**, a nearly square digital loudness meter (preferred 220 × 190,
+  minimum 190 × 170). Compact's main display area is one **continuous**
+  bottom-anchored fill whose top edge moves vertically with the Integrated value
+  (shared scale mapping), taking the configured zone colour at low alpha; there
+  is no segmented bar, ruler, tick labels, marker or standalone meter. The large
+  centred LUFS-I reading and the TP / LS / LM row are drawn on top. Controls sit
+  in a minimal top row: Info on the left, Reset and Settings on the right.
+- **About / information** vector `IconButton` in every display mode, opening an
+  `AboutContent` popup with the plugin metadata, the four measurements and the
+  third-party attributions (JUCE, libebur128).
+
+### Changed
+- `MeterSettings` now stores a single authoritative `MeterDisplayMode`
+  (`vertical` / `horizontal` / `compact`). The legacy `MeterOrientation` /
+  `MeterSizeMode` enums remain only as the saved-state vocabulary. The settings
+  panel shows one three-option display-mode selector instead of the orientation
+  radios and the size dropdown.
+- Settings persistence writes `displayMode` plus the derived legacy
+  `orientation` / `size` attributes. On load `displayMode` takes precedence, so
+  repeated save/load never changes the selected mode. Legacy states migrate
+  deterministically: Vertical (slim or compact) → Vertical, Horizontal (slim or
+  compact) → Horizontal, absent → Horizontal. An older build cannot know
+  Compact, so a Compact state is written as Horizontal and opens as the
+  Horizontal layout.
+- Compact mode redesigned from the initial wide, short segmented strip
+  (340 × 104) into a nearly square meter (220 × 190) with a continuous moving
+  fill, a substantially larger LUFS-I reading (~65% larger), TP / LS / LM
+  arranged as three label-over-value columns (matching Vertical mode) whose
+  values are ~35% larger than the previous inline row, and Info moved to the
+  top-left with Reset / Settings at the top-right. `MeterSettings::scaleProportion`
+  is exposed as the shared, unit-tested scale mapping used by both the segmented
+  bar and the Compact fill.
+
+### Tests
+- Added `testLegacyDisplayModeMigration`, `testScaleProportion` (the shared Compact
+  fill mapping at the scale minimum/maximum, intermediate values and clamping) and
+  extended `testSettingsPersistence` (repeated save/load stability, all three
+  modes, out-of-range clamping): **284 checks, 0 failures** (Release and Debug).
+  New offscreen previews for the three modes, the Compact fill at several LUFS-I
+  levels, and the About popup.
+
 ## [1.2.0] - 2026-10-09
 
 ### Added

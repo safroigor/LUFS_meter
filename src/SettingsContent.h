@@ -37,9 +37,7 @@ private:
     std::function<void (MeterSettings)> onSettingsChanged_;
     std::function<void()> onReset_;
 
-    juce::TextButton horizontalButton_ { "Horizontal" };
-    juce::TextButton verticalButton_   { "Vertical" };
-    juce::ComboBox   sizeCombo_;
+    juce::ComboBox   displayCombo_;
     juce::TextButton resetButton_ { "Reset" };
 
     juce::ToggleButton showLabelButton_ { "Show label (LUFS-I)" };

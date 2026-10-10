@@ -98,7 +98,7 @@ verified.
 
 ## Release
 
-Current release: **v1.1.0** (VST3, Windows x64). Plugin identity (manufacturer
+Current release: **v1.3.0** (VST3, Windows x64). Plugin identity (manufacturer
 code, plugin code, bundle identifier, version) is listed in the
 [README](../README.md). The verified environment and test results are in
 [docs/testing.md](testing.md).

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(LUFSMeter VERSION 1.2.0 LANGUAGES C CXX)
+project(LUFSMeter VERSION 1.3.0 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 # Global settings
@@ -48,7 +48,7 @@ juce_add_plugin(LUFSMeter
     PLUGIN_CODE               Lufs
     PRODUCT_NAME              "LUFS Meter"
     DESCRIPTION               "Accurate Loudness and True Peak meter (EBU R128 / ITU-R BS.1770)"
-    VERSION                   1.2.0
+    VERSION                   1.3.0
     FORMATS                   VST3
     IS_SYNTH                  FALSE
     NEEDS_MIDI_INPUT          FALSE
@@ -64,6 +64,7 @@ target_sources(LUFSMeter PRIVATE
     src/MeterComponent.cpp
     src/MeterTheme.cpp
     src/IconButton.cpp
+    src/AboutContent.cpp
     src/SettingsContent.cpp
     src/LoudnessMeter.cpp
     src/MeasurementEngine.cpp)

@@ -12,11 +12,11 @@ class LufsMeterAudioProcessor;
 /**
     Compact, resizable dark editor for the LUFS Meter.
 
-    Layout: a thin control strip in the upper-right holds the Reset and Settings
-    vector-icon buttons; the meter (label, segmented scale and the large reading)
-    fills the rest. Settings open in a CallOutBox, so they work identically in
-    both orientations and never disturb the layout. Changing orientation or size
-    never resets the measurement.
+    Layout: a thin control strip in the upper-right holds the Reset, Settings and
+    About vector-icon buttons; the meter fills the rest. Settings open in a
+    CallOutBox, so they work identically in every display mode and never disturb
+    the layout. The three display modes — Vertical, Horizontal and Compact — are
+    mutually exclusive; changing the mode never resets the measurement.
 */
 class LufsMeterAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                             private juce::Timer
@@ -35,6 +35,7 @@ public:
 private:
     void timerCallback() override;
     void showSettings();
+    void showAbout();
     void updateSizeLimits();
     juce::Point<int> getPreferredSize (const MeterSettings&) const;
 
@@ -42,6 +43,7 @@ private:
     MeterComponent meter_;
     IconButton resetButton_    { IconButton::IconType::reset,    "Reset measurement" };
     IconButton settingsButton_ { IconButton::IconType::settings, "Settings" };
+    IconButton infoButton_     { IconButton::IconType::info,     "About LUFS Meter" };
     juce::TooltipWindow tooltipWindow_ { this, 700 };
 
     static constexpr int outerPadding = 8;

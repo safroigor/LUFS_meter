@@ -7,8 +7,9 @@ EBU R 128, and displays them together with a compact bar scale.
 The plugin is a **measurement device**. It never modifies the incoming audio
 signal.
 
-> **Status: v1.2.0.** Adds Momentary (M), Short-Term (S) and True Peak (TP)
-> numeric readouts alongside the existing Integrated (LUFS-I) meter. See
+> **Status: v1.3.0.** Adds three mutually exclusive display modes — Vertical,
+> Horizontal and Compact (a nearly square digital meter with a continuous
+> background fill) — plus an About/info popup. See
 > [docs/testing.md](docs/testing.md) for the exact verified state.
 
 ## Features
@@ -20,10 +21,15 @@ signal.
   orientation, and stacked two-line groups to the left of the scale in vertical
   orientation.
 - Segmented horizontal / vertical scale with configurable green and red zones.
-- Horizontal / vertical orientation switch.
+- Three mutually exclusive display modes, chosen in one selector: **Vertical**
+  and **Horizontal** (the existing segmented meter) and **Compact**, a nearly
+  square digital meter whose background is one continuous fill that rises and
+  falls with the Integrated value using the configured zone colours.
+- About / information popup with the plugin metadata, the measurements and the
+  third-party attributions.
 - Transport-driven measurement pass: silence during playback never clears the
   value; play-after-stop, seek and loop start a new pass.
-- Reset button in the main interface; Slim / compact display modes.
+- Reset button in the main interface.
 - Optional `LUFS-I` label and scale marks.
 - Explicit "no valid value yet" state (never a fake `0 LUFS` / `0 dBTP`).
 - Non-blocking UI updates.
@@ -39,7 +45,7 @@ graphs, target levels, extra DSP.
 | Manufacturer code | `Safr` |
 | Plugin code | `Lufs` |
 | Bundle identifier | `com.SafroAudio.LUFSMeter` |
-| Product version | 1.2.0 |
+| Product version | 1.3.0 |
 | Format | VST3, Windows x64 |
 
 ## Requirements
