@@ -37,6 +37,26 @@ signal.
 Out of scope: Loudness Range (LRA), dynamics processing, loudness history
 graphs, target levels, extra DSP.
 
+## Screenshots
+
+The three display modes, rendered from the plugin at their preferred sizes:
+
+<table>
+  <tr>
+    <th align="center">Horizontal</th>
+    <th align="center">Vertical</th>
+    <th align="center">Compact</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/ui-mode-horizontal.png" width="320" alt="Horizontal display mode"></td>
+    <td align="center"><img src="docs/images/ui-mode-vertical.png" width="170" alt="Vertical display mode"></td>
+    <td align="center"><img src="docs/images/ui-compact.png" width="170" alt="Compact display mode"></td>
+  </tr>
+</table>
+
+> Rendered offscreen through JUCE at the code's logical sizes (see
+> [docs/testing.md](docs/testing.md)); not host screenshots.
+
 ## Plugin identity
 
 | Field | Value |
