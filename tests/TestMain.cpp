@@ -650,6 +650,23 @@ namespace
         TEST_CHECK_NEAR (clamped.redThreshold, MeterSettings::scaleMaxLufs, 1.0e-9);
     }
 
+    void testScaleProportion()
+    {
+        std::printf ("testScaleProportion\n");
+
+        // The Compact fill uses this shared mapping: 0 at the scale minimum, 1 at
+        // the maximum, linear in between.
+        TEST_CHECK_NEAR (MeterSettings::scaleProportion (MeterSettings::scaleMinLufs), 0.0, 1.0e-9);
+        TEST_CHECK_NEAR (MeterSettings::scaleProportion (MeterSettings::scaleMaxLufs), 1.0, 1.0e-9);
+        TEST_CHECK_NEAR (MeterSettings::scaleProportion (-15.0), 0.5, 1.0e-9);
+        TEST_CHECK_NEAR (MeterSettings::scaleProportion (-24.0), 0.2, 1.0e-9);
+        TEST_CHECK_NEAR (MeterSettings::scaleProportion (-6.0), 0.8, 1.0e-9);
+
+        // Values outside the scale clamp to [0, 1] (no fill below, full above).
+        TEST_CHECK_NEAR (MeterSettings::scaleProportion (-40.0), 0.0, 1.0e-9);
+        TEST_CHECK_NEAR (MeterSettings::scaleProportion (5.0), 1.0, 1.0e-9);
+    }
+
     void testZoneBoundaryConsistency()
     {
         std::printf ("testZoneBoundaryConsistency\n");
@@ -686,8 +703,7 @@ namespace
         std::printf ("testSettingsPersistence\n");
 
         MeterSettings s;
-        s.orientation = MeterOrientation::vertical;
-        s.size = MeterSizeMode::slim;
+        s.displayMode = MeterDisplayMode::compact;
         s.showLabel = false;
         s.showScale = false;
         s.greenLow = -25.0;
@@ -699,25 +715,82 @@ namespace
 
         const auto xml = s.toXml();
         TEST_CHECK (xml != nullptr);
+        TEST_CHECK (xml->hasAttribute ("displayMode"));
 
         const auto restored = MeterSettings::fromXml (*xml);
         TEST_CHECK (restored == s);
+        TEST_CHECK (restored.displayMode == MeterDisplayMode::compact);
         TEST_CHECK (restored.defaultColour == 0xff112233);
         TEST_CHECK (restored.redColour == 0xffff0000);
 
-        // A legacy state (only the original four attributes) must load with the
-        // new fields defaulted, not corrupted.
-        juce::XmlElement legacy ("LUFSMeterSettings");
-        legacy.setAttribute ("orientation", 1);
-        legacy.setAttribute ("size", 0);
-        legacy.setAttribute ("showLabel", false);
-        legacy.setAttribute ("showScale", false);
+        // Saving and loading repeatedly must never change the selected mode.
+        auto round = s;
+        for (int i = 0; i < 5; ++i)
+        {
+            const auto x = round.toXml();
+            round = MeterSettings::fromXml (*x);
+            TEST_CHECK (round.displayMode == MeterDisplayMode::compact);
+        }
 
-        const auto fromLegacy = MeterSettings::fromXml (legacy);
-        TEST_CHECK (fromLegacy.orientation == MeterOrientation::vertical);
-        TEST_CHECK (fromLegacy.size == MeterSizeMode::slim);
-        TEST_CHECK (fromLegacy.greenHigh >= fromLegacy.greenLow);
-        TEST_CHECK (fromLegacy.redThreshold >= fromLegacy.greenHigh);
+        TEST_CHECK (round == s);
+
+        // Every mode survives a round trip.
+        for (const auto mode : { MeterDisplayMode::vertical,
+                                 MeterDisplayMode::horizontal,
+                                 MeterDisplayMode::compact })
+        {
+            MeterSettings m;
+            m.displayMode = mode;
+            TEST_CHECK (MeterSettings::fromXml (*m.toXml()).displayMode == mode);
+        }
+
+        // An out-of-range mode is clamped by sanitise(), not left invalid.
+        MeterSettings bogus;
+        bogus.displayMode = static_cast<MeterDisplayMode> (9);
+        TEST_CHECK (bogus.sanitised().displayMode == MeterDisplayMode::compact);
+        bogus.displayMode = static_cast<MeterDisplayMode> (-3);
+        TEST_CHECK (bogus.sanitised().displayMode == MeterDisplayMode::vertical);
+    }
+
+    void testLegacyDisplayModeMigration()
+    {
+        std::printf ("testLegacyDisplayModeMigration\n");
+
+        // A legacy state has only `orientation` and `size`. Slim and Compact
+        // both collapse to their orientation's single display mode.
+        auto legacy = [] (int orientation, int size)
+        {
+            juce::XmlElement xml ("LUFSMeterSettings");
+            xml.setAttribute ("orientation", orientation);
+            xml.setAttribute ("size", size);
+            return MeterSettings::fromXml (xml);
+        };
+
+        TEST_CHECK (legacy (0, 0).displayMode == MeterDisplayMode::horizontal); // H slim
+        TEST_CHECK (legacy (0, 1).displayMode == MeterDisplayMode::horizontal); // H compact
+        TEST_CHECK (legacy (1, 0).displayMode == MeterDisplayMode::vertical);   // V slim
+        TEST_CHECK (legacy (1, 1).displayMode == MeterDisplayMode::vertical);   // V compact
+
+        // A state with no orientation at all defaults to Horizontal.
+        juce::XmlElement bare ("LUFSMeterSettings");
+        TEST_CHECK (MeterSettings::fromXml (bare).displayMode == MeterDisplayMode::horizontal);
+
+        // `displayMode` takes precedence over a conflicting legacy pair.
+        juce::XmlElement mixed ("LUFSMeterSettings");
+        mixed.setAttribute ("displayMode", 2); // Compact
+        mixed.setAttribute ("orientation", 1); // legacy Vertical
+        mixed.setAttribute ("size", 0);
+        TEST_CHECK (MeterSettings::fromXml (mixed).displayMode == MeterDisplayMode::compact);
+
+        // An older build cannot know Compact: the legacy attributes written for
+        // a Compact state must describe Horizontal, and the new field must
+        // still restore Compact.
+        MeterSettings compact;
+        compact.displayMode = MeterDisplayMode::compact;
+        const auto compactXml = compact.toXml();
+        TEST_CHECK (compactXml->getIntAttribute ("orientation", -1) == 0);
+        TEST_CHECK (compactXml->getIntAttribute ("size", -1) == 1);
+        TEST_CHECK (MeterSettings::fromXml (*compactXml).displayMode == MeterDisplayMode::compact);
     }
 
     // -----------------------------------------------------------------------
@@ -1019,8 +1092,10 @@ int main()
     testTruePeakSilenceAndReset();
     testZoneClassification();
     testZoneSanitisation();
+    testScaleProportion();
     testZoneBoundaryConsistency();
     testSettingsPersistence();
+    testLegacyDisplayModeMigration();
     testLifecycleContinuousPlayback();
     testLifecycleSilenceDoesNotReset();
     testLifecycleSeekResets();

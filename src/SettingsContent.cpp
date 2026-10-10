@@ -47,8 +47,7 @@ namespace
     struct Rows
     {
         juce::Rectangle<int> title;
-        juce::Rectangle<int> orientation;
-        juce::Rectangle<int> size;
+        juce::Rectangle<int> display;
         juce::Rectangle<int> showLabel;
         juce::Rectangle<int> showScale;
         juce::Rectangle<int> zonesHeading;
@@ -69,9 +68,7 @@ namespace
 
         r.title = inner.removeFromTop (24);
         inner.removeFromTop (12);
-        r.orientation = inner.removeFromTop (rowHeight);
-        inner.removeFromTop (10);
-        r.size = inner.removeFromTop (rowHeight);
+        r.display = inner.removeFromTop (rowHeight);
         inner.removeFromTop (18);
         r.showLabel = inner.removeFromTop (toggleHeight);
         r.showScale = inner.removeFromTop (toggleHeight);
@@ -128,6 +125,29 @@ namespace
         b.setColour (juce::TextButton::textColourOffId, MeterTheme::textSecondary);
         b.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
     }
+
+    // Single source of truth for the three-option display selector.
+    int displayModeToId (MeterDisplayMode mode)
+    {
+        switch (mode)
+        {
+            case MeterDisplayMode::vertical:   return 1;
+            case MeterDisplayMode::horizontal: return 2;
+            case MeterDisplayMode::compact:    return 3;
+        }
+
+        return 2;
+    }
+
+    MeterDisplayMode idToDisplayMode (int id)
+    {
+        switch (id)
+        {
+            case 1: return MeterDisplayMode::vertical;
+            case 3: return MeterDisplayMode::compact;
+            default: return MeterDisplayMode::horizontal;
+        }
+    }
 }
 
 SettingsContent::SettingsContent (MeterSettings initial,
@@ -139,19 +159,13 @@ SettingsContent::SettingsContent (MeterSettings initial,
 {
     setLookAndFeel (&MeterTheme::lookAndFeel());
 
-    styleFlatButton (horizontalButton_, true);
-    styleFlatButton (verticalButton_, true);
-    horizontalButton_.setRadioGroupId (2);
-    verticalButton_.setRadioGroupId (2);
-    horizontalButton_.onClick = [this] { emitSettings(); };
-    verticalButton_.onClick = [this] { emitSettings(); };
-    addAndMakeVisible (horizontalButton_);
-    addAndMakeVisible (verticalButton_);
-
-    sizeCombo_.addItem ("Slim", 1);
-    sizeCombo_.addItem ("Compact", 2);
-    sizeCombo_.onChange = [this] { emitSettings(); };
-    addAndMakeVisible (sizeCombo_);
+    // One mutually exclusive three-option selector replaces the old
+    // orientation + size pair.
+    displayCombo_.addItem ("Vertical", 1);
+    displayCombo_.addItem ("Horizontal", 2);
+    displayCombo_.addItem ("Compact", 3);
+    displayCombo_.onChange = [this] { emitSettings(); };
+    addAndMakeVisible (displayCombo_);
 
     showLabelButton_.onClick = [this] { emitSettings(); };
     showScaleButton_.onClick = [this] { emitSettings(); };
@@ -218,12 +232,8 @@ void SettingsContent::refreshControls()
 {
     settings_ = settings_.sanitised();
 
-    horizontalButton_.setToggleState (settings_.orientation == MeterOrientation::horizontal,
-                                      juce::dontSendNotification);
-    verticalButton_.setToggleState (settings_.orientation == MeterOrientation::vertical,
-                                    juce::dontSendNotification);
-    sizeCombo_.setSelectedId (settings_.size == MeterSizeMode::slim ? 1 : 2,
-                              juce::dontSendNotification);
+    displayCombo_.setSelectedId (displayModeToId (settings_.displayMode),
+                                 juce::dontSendNotification);
 
     showLabelButton_.setToggleState (settings_.showLabel, juce::dontSendNotification);
     showScaleButton_.setToggleState (settings_.showScale, juce::dontSendNotification);
@@ -243,10 +253,7 @@ void SettingsContent::refreshControls()
 
 void SettingsContent::emitSettings()
 {
-    settings_.orientation = verticalButton_.getToggleState() ? MeterOrientation::vertical
-                                                             : MeterOrientation::horizontal;
-    settings_.size = sizeCombo_.getSelectedId() == 1 ? MeterSizeMode::slim
-                                                     : MeterSizeMode::compact;
+    settings_.displayMode = idToDisplayMode (displayCombo_.getSelectedId());
     settings_.showLabel = showLabelButton_.getToggleState();
     settings_.showScale = showScaleButton_.getToggleState();
     settings_.greenLow = greenLowSlider_.getValue();
@@ -321,8 +328,7 @@ void SettingsContent::paint (juce::Graphics& g)
 
     g.setColour (MeterTheme::textSecondary);
     g.setFont (MeterTheme::regularFont (14.5f));
-    g.drawText ("Orientation", rows.orientation, juce::Justification::centredLeft, false);
-    g.drawText ("Size", rows.size, juce::Justification::centredLeft, false);
+    g.drawText ("Display", rows.display, juce::Justification::centredLeft, false);
     g.drawText ("Green low", rows.greenLow, juce::Justification::centredLeft, false);
     g.drawText ("Green high", rows.greenHigh, juce::Justification::centredLeft, false);
     g.drawText ("Red threshold", rows.redThreshold, juce::Justification::centredLeft, false);
@@ -335,13 +341,7 @@ void SettingsContent::resized()
 {
     auto rows = computeRows (getLocalBounds());
 
-    auto orientation = rows.orientation.withTrimmedLeft (labelWidth);
-    const int half = (orientation.getWidth() - 6) / 2;
-    horizontalButton_.setBounds (orientation.removeFromLeft (half));
-    orientation.removeFromLeft (6);
-    verticalButton_.setBounds (orientation.removeFromLeft (half));
-
-    sizeCombo_.setBounds (rows.size.withTrimmedLeft (labelWidth));
+    displayCombo_.setBounds (rows.display.withTrimmedLeft (labelWidth));
 
     showLabelButton_.setBounds (rows.showLabel);
     showScaleButton_.setBounds (rows.showScale);

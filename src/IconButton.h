@@ -3,7 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 /**
-    Small, quietly styled vector icon button used for Reset and Settings.
+    Small, quietly styled vector icon button used for Reset, Settings and About.
 
     The visible glyph is drawn as a vector path (crisp at any scale) while the
     component keeps a comfortable clickable area. Hover, pressed and focus
@@ -15,7 +15,8 @@ public:
     enum class IconType
     {
         reset,
-        settings
+        settings,
+        info
     };
 
     IconButton (IconType type, const juce::String& tooltip);
@@ -26,6 +27,7 @@ private:
     static juce::Path makeResetArc (juce::Rectangle<float> area);
     static juce::Path makeResetHead (juce::Rectangle<float> area);
     static juce::Path makeSettingsPath (juce::Rectangle<float> area);
+    static juce::Path makeInfoRing (juce::Rectangle<float> area);
 
     IconType type_;
 

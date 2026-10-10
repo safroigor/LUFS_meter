@@ -27,7 +27,8 @@ The processor tracks a measurement "session":
 - When audio resumes, a reset is requested and the measurement restarts from
   zero. The display shows the "no value" placeholder until a new value is
   available.
-- Changing the UI orientation or size never resets the measurement.
+- Changing the UI display mode (Vertical / Horizontal / Compact) never resets
+  the measurement.
 - The UI Reset button performs the same restart on demand.
 
 ## Consequences

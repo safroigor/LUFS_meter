@@ -8,6 +8,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "AboutContent.h"
 #include "MeasurementEngine.h"
 #include "MeterComponent.h"
 #include "MeterSettings.h"
@@ -64,6 +65,22 @@ namespace
                 editorHeight - 2 * editorOuterPadding - editorControlStrip);
     }
 
+    /** Renders an arbitrary component (e.g. the About panel) on the window
+        background, at its own size. */
+    void renderComponent (const juce::File& dir, const juce::String& name, juce::Component& component)
+    {
+        juce::Image image (juce::Image::ARGB, component.getWidth(), component.getHeight(), true);
+
+        {
+            juce::Graphics g (image);
+            g.fillAll (MeterTheme::windowBackground);
+            component.paintEntireComponent (g, true);
+        }
+
+        writePng (image, dir.getChildFile (name));
+        std::printf ("wrote %s\n", name.toRawUTF8());
+    }
+
     void feed (MeasurementEngine& engine, double sampleRate, double seconds,
                double frequency, double peakDbfs)
     {
@@ -108,57 +125,70 @@ int main (int argc, char** argv)
                                   : juce::File::getCurrentWorkingDirectory().getChildFile ("docs/images");
     outDir.createDirectory();
 
-    MeasurementEngine engine;
-    engine.prepare (48000.0, 2);
-
-    MeterSettings h;
-    h.orientation = MeterOrientation::horizontal;
-
-    MeterSettings v;
-    v.orientation = MeterOrientation::vertical;
-
-    // Unavailable state (no signal yet): placeholders.
+    // Unavailable state (no signal yet): placeholders in all three modes.
     {
-        auto s = h; s.size = MeterSizeMode::compact;
-        renderEditor (outDir, "ui-v1.2-horizontal-empty.png", engine, s, 430, 144);
-        auto sv = v; sv.size = MeterSizeMode::compact;
-        renderEditor (outDir, "ui-v1.2-vertical-empty.png", engine, sv, 224, 360);
+        MeasurementEngine engine;
+        engine.prepare (48000.0, 2);
+
+        MeterSettings s;
+        s.displayMode = MeterDisplayMode::vertical;
+        renderEditor (outDir, "ui-vertical-empty.png", engine, s, 224, 360);
+
+        s.displayMode = MeterDisplayMode::horizontal;
+        renderEditor (outDir, "ui-horizontal-empty.png", engine, s, 430, 144);
+
+        s.displayMode = MeterDisplayMode::compact;
+        renderEditor (outDir, "ui-compact-empty.png", engine, s, 220, 190);
     }
 
     // Populated state: a steady -23 dBFS stereo tone.
-    feed (engine, 48000.0, 4.0, 1000.0, -23.0);
-    waitForShortTerm (engine);
-
     {
-        auto sc = h; sc.size = MeterSizeMode::compact;
-        renderEditor (outDir, "ui-v1.2-horizontal-compact.png", engine, sc, 430, 144);
+        MeasurementEngine engine;
+        engine.prepare (48000.0, 2);
+        feed (engine, 48000.0, 4.0, 1000.0, -23.0);
+        waitForShortTerm (engine);
 
-        auto ss = h; ss.size = MeterSizeMode::slim;
-        renderEditor (outDir, "ui-v1.2-horizontal-slim.png", engine, ss, 400, 122);
+        MeterSettings s;
+        s.displayMode = MeterDisplayMode::vertical;
+        renderEditor (outDir, "ui-mode-vertical.png", engine, s, 224, 360);
 
-        renderEditor (outDir, "ui-v1.2-horizontal-min.png", engine, sc, 360, 136);
+        s.displayMode = MeterDisplayMode::horizontal;
+        renderEditor (outDir, "ui-mode-horizontal.png", engine, s, 430, 144);
 
-        auto vc = v; vc.size = MeterSizeMode::compact;
-        renderEditor (outDir, "ui-v1.2-vertical-compact.png", engine, vc, 224, 360);
+        // Compact mode at the preferred and minimum sizes.
+        s.displayMode = MeterDisplayMode::compact;
+        renderEditor (outDir, "ui-compact.png", engine, s, 220, 190);
+        renderEditor (outDir, "ui-compact-min.png", engine, s, 190, 170);
 
-        auto vs = v; vs.size = MeterSizeMode::slim;
-        renderEditor (outDir, "ui-v1.2-vertical-slim.png", engine, vs, 200, 312);
-
-        renderEditor (outDir, "ui-v1.2-vertical-min.png", engine, vc, 190, 300);
+        engine.release();
     }
 
-    // True Peak at/above 0 dBTP to show the red state.
-    feed (engine, 48000.0, 0.5, 12000.0, 0.0);
-    juce::Thread::sleep (200);
+    // Compact background fill / zone colours at several LUFS-I levels. The
+    // default zones are green [-24, -14] and red >= -14, so these cover the
+    // default, green and red zones with low, mid and high fills.
+    struct Level { double dbfs; const char* name; };
 
+    for (const Level level : { Level { -27.0, "ui-compact-normal.png" },
+                               Level { -18.0, "ui-compact-green.png" },
+                               Level {  -8.0, "ui-compact-red.png" } })
     {
-        auto sc = h; sc.size = MeterSizeMode::compact;
-        renderEditor (outDir, "ui-v1.2-horizontal-tp-red.png", engine, sc, 430, 144);
+        MeasurementEngine engine;
+        engine.prepare (48000.0, 2);
+        feed (engine, 48000.0, 4.0, 1000.0, level.dbfs);
+        waitForShortTerm (engine);
 
-        auto vc = v; vc.size = MeterSizeMode::compact;
-        renderEditor (outDir, "ui-v1.2-vertical-tp-red.png", engine, vc, 224, 360);
+        MeterSettings s;
+        s.displayMode = MeterDisplayMode::compact;
+        renderEditor (outDir, level.name, engine, s, 220, 190);
+
+        engine.release();
     }
 
-    engine.release();
+    // The About popup, rendered on its own.
+    {
+        AboutContent about;
+        renderComponent (outDir, "ui-about.png", about);
+    }
+
     return 0;
 }

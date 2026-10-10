@@ -2,14 +2,35 @@
 
 #include <juce_core/juce_core.h>
 
-/** Display orientation of the meter. */
+/** The three mutually exclusive display layouts.
+
+    - vertical:   the existing vertical meter.
+    - horizontal: the existing horizontal meter.
+    - compact:    a small horizontal numeric layout whose entire background is a
+                  segmented loudness indicator.
+
+    This is the authoritative display setting. `MeterOrientation` and
+    `MeterSizeMode` below are kept only as the saved-state vocabulary so old
+    sessions still load (see `MeterSettings::fromXml`). */
+enum class MeterDisplayMode
+{
+    vertical   = 0,
+    horizontal = 1,
+    compact    = 2
+};
+
+/** Legacy display orientation. Kept only as the saved-state vocabulary; the
+    authoritative setting is `MeterDisplayMode`. Do not branch on this in new
+    code. */
 enum class MeterOrientation
 {
     horizontal = 0,
     vertical   = 1
 };
 
-/** Display size preset. */
+/** Legacy display size preset. Kept only as the saved-state vocabulary (see
+    `MeterOrientation`). Slim and Compact both restore to their orientation's
+    single `MeterDisplayMode`. */
 enum class MeterSizeMode
 {
     slim    = 0,
@@ -36,8 +57,7 @@ struct MeterSettings
     static constexpr double scaleMinLufs = -30.0;
     static constexpr double scaleMaxLufs = 0.0;
 
-    MeterOrientation orientation = MeterOrientation::horizontal;
-    MeterSizeMode size = MeterSizeMode::compact;
+    MeterDisplayMode displayMode = MeterDisplayMode::horizontal;
     bool showLabel = true;
     bool showScale = true;
 
@@ -50,6 +70,15 @@ struct MeterSettings
     juce::uint32 defaultColour = 0xffe6e6e6; // light gray
     juce::uint32 greenColour   = 0xff34c759; // green
     juce::uint32 redColour     = 0xffff3b30; // red
+
+    /** Maps a LUFS value to its position on the display scale, clamped to
+        [0, 1]. Shared by the segmented bar (Vertical/Horizontal) and the
+        continuous Compact fill, so both use exactly the same mapping. */
+    static double scaleProportion (double lufs) noexcept
+    {
+        return juce::jlimit (0.0, 1.0,
+                             (lufs - scaleMinLufs) / (scaleMaxLufs - scaleMinLufs));
+    }
 
     /** Classifies a measured value. Red takes precedence, so the zones stay
         well-defined even if the boundaries overlap. A tiny epsilon makes values
@@ -75,6 +104,8 @@ struct MeterSettings
     MeterSettings sanitised() const
     {
         MeterSettings s = *this;
+        s.displayMode  = static_cast<MeterDisplayMode> (
+            juce::jlimit (0, 2, static_cast<int> (s.displayMode)));
         s.greenLow     = juce::jlimit (scaleMinLufs, scaleMaxLufs, s.greenLow);
         s.greenHigh    = juce::jlimit (s.greenLow, scaleMaxLufs, s.greenHigh);
         s.redThreshold = juce::jlimit (s.greenHigh, scaleMaxLufs, s.redThreshold);
@@ -83,8 +114,7 @@ struct MeterSettings
 
     bool operator== (const MeterSettings& other) const noexcept
     {
-        return orientation == other.orientation
-            && size == other.size
+        return displayMode == other.displayMode
             && showLabel == other.showLabel
             && showScale == other.showScale
             && juce::approximatelyEqual (greenLow, other.greenLow)
@@ -103,8 +133,15 @@ struct MeterSettings
     std::unique_ptr<juce::XmlElement> toXml() const
     {
         auto xml = std::make_unique<juce::XmlElement> ("LUFSMeterSettings");
-        xml->setAttribute ("orientation", static_cast<int> (orientation));
-        xml->setAttribute ("size", static_cast<int> (size));
+        xml->setAttribute ("displayMode", static_cast<int> (displayMode));
+
+        // Legacy attributes, derived from the display mode, so an older build
+        // that has never heard of `displayMode` still loads a sensible layout.
+        // Compact is written as Horizontal, the closest legacy layout.
+        const bool vertical = displayMode == MeterDisplayMode::vertical;
+        xml->setAttribute ("orientation", vertical ? 1 : 0);
+        xml->setAttribute ("size", static_cast<int> (MeterSizeMode::compact));
+
         xml->setAttribute ("showLabel", showLabel);
         xml->setAttribute ("showScale", showScale);
         xml->setAttribute ("greenLow", greenLow);
@@ -119,8 +156,26 @@ struct MeterSettings
     static MeterSettings fromXml (const juce::XmlElement& xml)
     {
         MeterSettings s;
-        s.orientation = static_cast<MeterOrientation> (juce::jlimit (0, 1, xml.getIntAttribute ("orientation", 0)));
-        s.size        = static_cast<MeterSizeMode> (juce::jlimit (0, 1, xml.getIntAttribute ("size", 1)));
+
+        // `displayMode` takes precedence whenever present. Repeated save/load
+        // therefore round-trips the selected mode unchanged.
+        if (xml.hasAttribute ("displayMode"))
+        {
+            s.displayMode = static_cast<MeterDisplayMode> (
+                juce::jlimit (0, 2, xml.getIntAttribute ("displayMode", 1)));
+        }
+        else
+        {
+            // Migrate from the legacy orientation/size pair. Slim and Compact
+            // both collapse to their orientation's single display mode; the size
+            // attribute is intentionally ignored so the migration is
+            // deterministic.
+            const int legacyOrientation = xml.getIntAttribute ("orientation", 0);
+            s.displayMode = legacyOrientation == static_cast<int> (MeterOrientation::vertical)
+                                ? MeterDisplayMode::vertical
+                                : MeterDisplayMode::horizontal;
+        }
+
         s.showLabel   = xml.getBoolAttribute ("showLabel", true);
         s.showScale   = xml.getBoolAttribute ("showScale", true);
         s.greenLow     = xml.getDoubleAttribute ("greenLow", s.greenLow);

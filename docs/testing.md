@@ -3,11 +3,16 @@
 This document records the test matrix, the reference values, the accepted
 tolerances and the observed results.
 
-> **Status: v1.2.0.** Build and the automated test suite pass. The transport
-> lifecycle, colour-zone model, Momentary/Short-Term/True Peak measurements and
-> the coherent snapshot are covered by automated tests. The secondary readouts
-> were rendered offscreen in both orientations (see below) but have **not** been
-> verified in REAPER, and real-monitor DPI scaling remains unverified.
+> **Status: v1.3.0 (three display modes + About).** Build and the automated
+> test suite pass (284 checks, Release and Debug). On top of v1.2.0 this adds a
+> single three-option display-mode selector (Vertical / Horizontal / Compact),
+> the Compact continuous background fill and secondary readout row, and an
+> About/info popup. The transport lifecycle, colour-zone model,
+> Momentary/Short-Term/True Peak measurements, the coherent snapshot and the new
+> settings persistence / legacy-migration are covered by automated tests. The
+> three modes, the Compact meter and the About popup were rendered offscreen (see
+> below) but have **not** been verified in REAPER, and real-monitor DPI scaling
+> remains unverified.
 
 ## Tolerance policy
 
@@ -23,7 +28,7 @@ Tolerances are taken from the source that defines them. A universal tolerance is
 ## Executed tests
 
 Executable: `build/release/tests/LufsMeterTests_artefacts/Release/LufsMeterTests.exe`
-Run via CTest. Result: **259 checks, 0 failures**.
+Run via CTest. Result: **284 checks, 0 failures** (Release and Debug).
 
 | # | Test | Signal / action | Expected | Tolerance | Result |
 |---|---|---|---|---|---|
@@ -44,7 +49,7 @@ Run via CTest. Result: **259 checks, 0 failures**.
 | 15 | `testMultipleTakesSeparatedBySilence` | 4 × 10 s −23 takes, 8 s silent gaps | −23.0 LUFS | ±0.1 | pass |
 | 16 | `testZoneClassification` | zone boundaries incl. shared green/red edge | normal / green / red as configured | exact | pass |
 | 17 | `testZoneSanitisation` | reversed and out-of-scale boundaries | ordered (normal < green < red) and clamped | exact | pass |
-| 18 | `testSettingsPersistence` | XML round-trip incl. colours; legacy 4-attribute state | restored exactly; legacy defaults safely | exact | pass |
+| 18 | `testSettingsPersistence` | XML round-trip incl. colours; repeated save/load; every display mode; out-of-range mode | restored exactly; mode never changes on reload; clamped | exact | pass |
 | 19 | `testLifecycleContinuousPlayback` | advancing position with jitter | no resets after the first block | exact | pass |
 | 20 | `testLifecycleSilenceDoesNotReset` | 50 continuous blocks (tracker has no audio input) | no resets | exact | pass |
 | 21 | `testLifecycleSeekResets` | position jumps forward while playing | new pass | exact | pass |
@@ -69,6 +74,8 @@ Run via CTest. Result: **259 checks, 0 failures**.
 | 40 | `testSnapshotConcurrentRead` | reader thread while audio is pushed | snapshot always coherent/finite (no torn values) | — | pass |
 | 41 | `testMomentaryShortTermMono` | mono 1 kHz sine −23 dBFS, 5 s | M and S ≈ −26.0 (single-channel energy) | ±0.15 | pass |
 | 42 | `testTruePeakSampleRates` | fs/4 45° sine @ 44.1 / 96 / 192 kHz | dBTP ≈ 0.0 (4×/2×); ≈ −3.01 at 192 kHz (no oversampling) | ±0.5 / ±0.1 | pass |
+| 43 | `testLegacyDisplayModeMigration` | legacy orientation/size pairs, absent orientation, `displayMode` precedence, legacy attrs written for Compact | deterministic mode mapping; old builds see Horizontal for Compact | exact | pass |
+| 44 | `testScaleProportion` | `scaleProportion` at min/max, −15, −24, −6, and outside the scale | 0 / 1 / linear; clamped to [0, 1] | exact | pass |
 
 ### Notes
 
@@ -100,37 +107,54 @@ Windows SDK 10.0.26100.0, JUCE 8.0.15, libebur128 v1.2.6.
 
 ## UI previews (offscreen)
 
-### v1.2.0 secondary readouts
+### Three display modes, Compact indicator and About (current)
 
-The secondary readouts were rendered offscreen through JUCE (painting
+The three display modes were rendered offscreen through JUCE (painting
 `MeterComponent` into an image, no host involved) with the `LufsMeterPreview`
 tool (`tools/preview`, built only with `-DLUFSMETER_BUILD_PREVIEW=ON`):
 
 | Preview | File |
 |---|---|
-| Horizontal compact | `docs/images/ui-v1.2-horizontal-compact.png` |
-| Horizontal slim | `docs/images/ui-v1.2-horizontal-slim.png` |
-| Horizontal minimum (360 x 136) | `docs/images/ui-v1.2-horizontal-min.png` |
-| Horizontal, no signal (placeholders) | `docs/images/ui-v1.2-horizontal-empty.png` |
-| Horizontal, True Peak in the red state | `docs/images/ui-v1.2-horizontal-tp-red.png` |
-| Vertical compact | `docs/images/ui-v1.2-vertical-compact.png` |
-| Vertical slim | `docs/images/ui-v1.2-vertical-slim.png` |
-| Vertical minimum (190 x 300) | `docs/images/ui-v1.2-vertical-min.png` |
-| Vertical, no signal (placeholders) | `docs/images/ui-v1.2-vertical-empty.png` |
-| Vertical, True Peak in the red state | `docs/images/ui-v1.2-vertical-tp-red.png` |
+| Vertical mode (224 x 360) | `docs/images/ui-mode-vertical.png` |
+| Horizontal mode (430 x 144) | `docs/images/ui-mode-horizontal.png` |
+| Compact mode, preferred size (220 x 190) | `docs/images/ui-compact.png` |
+| Compact mode, minimum size (190 x 170) | `docs/images/ui-compact-min.png` |
+| Compact, default zone / low fill (−27 LUFS) | `docs/images/ui-compact-normal.png` |
+| Compact, green zone (−18 LUFS) | `docs/images/ui-compact-green.png` |
+| Compact, red zone (−8 LUFS) | `docs/images/ui-compact-red.png` |
+| Compact, no signal (placeholders) | `docs/images/ui-compact-empty.png` |
+| Vertical / Horizontal / Compact, no signal | `...-empty.png` |
+| About popup | `docs/images/ui-about.png` |
 
-Rendered checks: the horizontal row reads TP, LS, LM in order above the scale,
-centred on the segmented scale's own horizontal bounds, with numeric values
-larger and heavier than their abbreviations and no clipping at the minimum
-360 x 136; the LUFS-I reading is aligned to the meter's visual centre (measured
-within ~1 px); the vertical column shows three two-line groups (label directly
-above a larger value, widely spaced between groups) to the left of the centred
-meter with the ruler still on the right, with no clipping or overlap at the
-minimum 190 x 300; unavailable measurements show the em-dash placeholder `—`;
-True Peak is red at `0.0 dBTP`.
+Rendered checks: Vertical and Horizontal are unchanged from v1.2.0;
+Compact is a nearly square meter (204 x 152 main area at the preferred size) with
+a large, centred LUFS-I reading (about 65% larger than the previous Compact
+strip) and the TP, LS, LM row beneath it, over one **continuous** bottom-anchored
+fill — no segments, ruler, ticks or marker. The secondary row is three
+label-over-value columns (label directly above its value, as in Vertical mode)
+with a 24 px value type (about 35% larger than the previous inline row); the
+three groups stay within their columns with clear gaps at both sizes (value
+groups separated by ~29 px at the preferred size and ~19 px at the minimum). The
+fill's top edge moves with the Integrated value: measured fill proportion 0.105
+at −27, 0.237 at −23, 0.401 at −18 and 0.737 at −8, matching the
+`scaleProportion` mapping within rounding, and the fill colour follows the
+configured zones (neutral at −27, green at −23/−18, red at −8); there is no fill
+when the value is unavailable; the reading and the readouts stay legible over the
+fill at both the preferred and the minimum size (174 x 132 main area), and the
+readouts show the em-dash placeholder `—` with no value; the About popup shows
+the plugin metadata, the four measurements and the third-party attributions.
 
 > These renders are at the code's logical sizes and verify geometry, ordering,
 > colour and non-clipping, **not** host behaviour or real-monitor DPI crispness.
+
+### v1.2.0 secondary readouts (superseded)
+
+> The v1.2.0 `ui-v1.2-*.png` renders remain on disk for history; the readouts now
+> follow the three display modes above. In v1.2.0 the horizontal row read TP, LS,
+> LM above the scale and the vertical column stacked three two-line groups to the
+> left of the meter, with unavailable values shown as `—` and True Peak red at
+> `0.0 dBTP`.
+
 
 ### v1.1.0 (historical)
 
@@ -175,11 +199,17 @@ the sizes above.
 - Transport-driven pass lifecycle: play/stop/seek/loop with a real REAPER
   transport, including the pause-vs-stop caveat (ADR 0007).
 - The redesigned UI: segmented bar, zone/colour settings, the colour picker,
-  and the relocated Reset button in both orientations and both size presets.
+  and the relocated Reset button in all three display modes (Vertical,
+  Horizontal, Compact).
+- The three display modes and the Compact continuous fill: legibility of the
+  reading and the TP / LS / LM readouts over the fill at the minimum and
+  preferred sizes, correct fill height against the scale and zone colours, the
+  Info-left / Reset-Settings-right control row, the About/info popup, and DPI
+  scaling. Offscreen renders pass at the logical sizes; a real host and
+  real-monitor check is still required.
 - The v1.2.0 secondary readouts (TP / LS / LM): legibility at the minimum sizes,
   no overlap with the meter/ruler/reading/controls, True Peak shown in red at
-  ≥ 0.0 dBTP, and DPI scaling. Offscreen renders pass at the logical sizes; a
-  real host and real-monitor check is still required.
+  ≥ 0.0 dBTP, and DPI scaling.
 - Reference-meter comparison of Short-Term, Momentary and True Peak against a
   trusted analyzer, and true-peak comparison against suitable test signals.
 

@@ -88,6 +88,13 @@ juce::Path IconButton::makeSettingsPath (juce::Rectangle<float> area)
     return path;
 }
 
+juce::Path IconButton::makeInfoRing (juce::Rectangle<float> area)
+{
+    juce::Path path;
+    path.addEllipse (area);
+    return path;
+}
+
 void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
 {
     auto area = getLocalBounds().toFloat();
@@ -126,8 +133,32 @@ void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
                                             juce::PathStrokeType::rounded));
         g.fillPath (makeResetHead (glyphArea));
     }
-    else
+    else if (type_ == IconType::settings)
     {
         g.fillPath (makeSettingsPath (glyphArea));
+    }
+    else // info / About
+    {
+        // A stroked ring with a solid lowercase "i": dot above a short stem.
+        // The ring uses a slightly larger area than the other glyphs so the
+        // thin circle stays legible at button size.
+        const auto ringArea = iconArea.reduced (size * 0.20f);
+        const float stroke = juce::jmax (1.2f, size * 0.065f);
+
+        g.strokePath (makeInfoRing (ringArea),
+                      juce::PathStrokeType (stroke, juce::PathStrokeType::curved,
+                                            juce::PathStrokeType::rounded));
+
+        const auto c = ringArea.getCentre();
+        const float r = ringArea.getWidth() * 0.5f;
+        const float dotR = juce::jmax (1.0f, size * 0.045f);
+
+        g.fillEllipse (c.x - dotR, c.y - r * 0.46f - dotR, dotR * 2.0f, dotR * 2.0f);
+
+        const float stemW = juce::jmax (1.6f, size * 0.075f);
+        const float stemTop = c.y - r * 0.16f;
+        const float stemBottom = c.y + r * 0.46f;
+        g.fillRoundedRectangle (c.x - stemW * 0.5f, stemTop, stemW, stemBottom - stemTop,
+                                stemW * 0.5f);
     }
 }

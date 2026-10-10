@@ -7,6 +7,7 @@ target_sources(LufsMeterPreview PRIVATE
     ${CMAKE_SOURCE_DIR}/src/LoudnessMeter.cpp
     ${CMAKE_SOURCE_DIR}/src/MeasurementEngine.cpp
     ${CMAKE_SOURCE_DIR}/src/MeterComponent.cpp
+    ${CMAKE_SOURCE_DIR}/src/AboutContent.cpp
     ${CMAKE_SOURCE_DIR}/src/MeterTheme.cpp)
 
 target_include_directories(LufsMeterPreview PRIVATE
