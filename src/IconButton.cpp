@@ -8,6 +8,10 @@ namespace
 {
     constexpr float pi = 3.14159265358979323846f;
     constexpr float twoPi = 2.0f * pi;
+
+    // The reset glyph's arc leaves this gap at the top-right for the arrow head.
+    constexpr float resetStartAngle = 0.52f;
+    constexpr float resetEndAngle   = twoPi - 0.53f;
 }
 
 IconButton::IconButton (IconType type, const juce::String& tooltip)
@@ -18,37 +22,36 @@ IconButton::IconButton (IconType type, const juce::String& tooltip)
     setWantsKeyboardFocus (true);
 }
 
-juce::Path IconButton::makeResetArc (juce::Rectangle<float> area)
+juce::Path IconButton::makeResetArc (juce::Rectangle<float> area, float strokeWidth)
 {
     juce::Path path;
 
     const auto centre = area.getCentre();
-    const float radius = area.getWidth() * 0.32f;
-
-    // A ~280 degree arc, leaving a gap at the top-right for the arrow head.
-    const float startAngle = 0.65f;
-    const float endAngle = twoPi - 0.35f;
+    // The stroke is centred on the path, so pulling the radius in by half a
+    // stroke puts the drawn arc's outer edge exactly on the glyph box — the same
+    // optical size as the filled gear and the ring.
+    const float radius = juce::jmax (1.0f, area.getWidth() * 0.5f - strokeWidth * 0.5f);
 
     path.addCentredArc (centre.x, centre.y, radius, radius, 0.0f,
-                        startAngle, endAngle, true);
+                        resetStartAngle, resetEndAngle, true);
     return path;
 }
 
-juce::Path IconButton::makeResetHead (juce::Rectangle<float> area)
+juce::Path IconButton::makeResetHead (juce::Rectangle<float> area, float strokeWidth)
 {
     juce::Path path;
 
     const auto centre = area.getCentre();
-    const float radius = area.getWidth() * 0.32f;
-    const float endAngle = twoPi - 0.35f;
+    const float radius = juce::jmax (1.0f, area.getWidth() * 0.5f - strokeWidth * 0.5f);
 
-    const float ax = centre.x + radius * std::sin (endAngle);
-    const float ay = centre.y - radius * std::cos (endAngle);
-    const float tx = std::cos (endAngle);
-    const float ty = std::sin (endAngle);
+    const float ax = centre.x + radius * std::sin (resetEndAngle);
+    const float ay = centre.y - radius * std::cos (resetEndAngle);
+    const float tx = std::cos (resetEndAngle);
+    const float ty = std::sin (resetEndAngle);
 
-    const float head = radius * 0.60f;
-    const float half = radius * 0.46f;
+    // A solid head that continues the arc along its tangent.
+    const float head = area.getWidth() * 0.42f;
+    const float half = area.getWidth() * 0.24f;
 
     path.startNewSubPath (ax + tx * head, ay + ty * head);
     path.lineTo (ax - ty * half, ay + tx * half);
@@ -62,10 +65,13 @@ juce::Path IconButton::makeSettingsPath (juce::Rectangle<float> area)
     juce::Path path;
 
     const auto centre = area.getCentre();
-    const float outer = area.getWidth() * 0.42f;
-    const float valley = outer * 0.78f;
-    const float hole = outer * 0.36f;
-    constexpr int teeth = 10;
+    const float outer = area.getWidth() * 0.5f;
+    const float valley = outer * 0.72f;
+    const float hole = outer * 0.38f;
+
+    // Six teeth: at a 20 px button a denser gear loses its gaps and reads as a
+    // blob (it used to be drawn at half this size with ten teeth).
+    constexpr int teeth = 6;
 
     for (int i = 0; i < teeth * 2; ++i)
     {
@@ -104,46 +110,49 @@ void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
     // Subtle state background (never a heavy border).
     if (down)
     {
-        g.setColour (juce::Colours::white.withAlpha (0.14f));
+        g.setColour (juce::Colours::white.withAlpha (0.08f));
         g.fillEllipse (iconArea.reduced (1.0f));
     }
     else if (highlighted)
     {
-        g.setColour (juce::Colours::white.withAlpha (0.08f));
+        g.setColour (juce::Colours::white.withAlpha (0.04f));
         g.fillEllipse (iconArea.reduced (1.0f));
     }
 
     if (hasKeyboardFocus (false))
     {
-        g.setColour (MeterTheme::accent.withAlpha (0.65f));
+        g.setColour (MeterTheme::accent.withAlpha (0.35f));
         g.drawEllipse (iconArea.reduced (1.0f), 1.0f);
     }
 
-    const auto glyphArea = iconArea.reduced (size * 0.24f);
+    // One glyph box for all three icons. They used to be drawn at three
+    // different optical sizes (a wide ring, a tiny arc, a dense gear), which
+    // made Reset and Settings unreadable at the 20 px button size.
+    const auto glyphBox = iconArea.reduced (size * 0.18f);
+    const float stroke = juce::jmax (1.6f, size * 0.085f);
 
-    const auto colour = down ? MeterTheme::textPrimary
-                             : (highlighted ? juce::Colour (0xffcfcfcf) : MeterTheme::textSecondary);
+    // Dim chrome: the icons stay readable without competing with the meter
+    // (see MeterTheme's icon colours).
+    const auto colour = down ? MeterTheme::iconPressed
+                             : (highlighted ? MeterTheme::iconHover : MeterTheme::iconIdle);
     g.setColour (colour);
 
     if (type_ == IconType::reset)
     {
-        const float stroke = juce::jmax (1.4f, size * 0.075f);
-        g.strokePath (makeResetArc (glyphArea),
+        g.strokePath (makeResetArc (glyphBox, stroke),
                       juce::PathStrokeType (stroke, juce::PathStrokeType::curved,
                                             juce::PathStrokeType::rounded));
-        g.fillPath (makeResetHead (glyphArea));
+        g.fillPath (makeResetHead (glyphBox, stroke));
     }
     else if (type_ == IconType::settings)
     {
-        g.fillPath (makeSettingsPath (glyphArea));
+        g.fillPath (makeSettingsPath (glyphBox));
     }
     else // info / About
     {
-        // A stroked ring with a solid lowercase "i": dot above a short stem.
-        // The ring uses a slightly larger area than the other glyphs so the
-        // thin circle stays legible at button size.
-        const auto ringArea = iconArea.reduced (size * 0.20f);
-        const float stroke = juce::jmax (1.2f, size * 0.065f);
+        // A stroked ring with a solid lowercase "i": dot above a short stem, in
+        // the same box and with the same stroke weight as the other two glyphs.
+        const auto ringArea = glyphBox.reduced (stroke * 0.5f);
 
         g.strokePath (makeInfoRing (ringArea),
                       juce::PathStrokeType (stroke, juce::PathStrokeType::curved,
@@ -151,12 +160,12 @@ void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
 
         const auto c = ringArea.getCentre();
         const float r = ringArea.getWidth() * 0.5f;
-        const float dotR = juce::jmax (1.0f, size * 0.045f);
+        const float dotR = juce::jmax (1.1f, size * 0.055f);
 
-        g.fillEllipse (c.x - dotR, c.y - r * 0.46f - dotR, dotR * 2.0f, dotR * 2.0f);
+        g.fillEllipse (c.x - dotR, c.y - r * 0.44f - dotR, dotR * 2.0f, dotR * 2.0f);
 
-        const float stemW = juce::jmax (1.6f, size * 0.075f);
-        const float stemTop = c.y - r * 0.16f;
+        const float stemW = juce::jmax (1.8f, size * 0.09f);
+        const float stemTop = c.y - r * 0.12f;
         const float stemBottom = c.y + r * 0.46f;
         g.fillRoundedRectangle (c.x - stemW * 0.5f, stemTop, stemW, stemBottom - stemTop,
                                 stemW * 0.5f);

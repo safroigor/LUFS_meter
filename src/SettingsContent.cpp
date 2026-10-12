@@ -54,6 +54,8 @@ namespace
         juce::Rectangle<int> greenLow;
         juce::Rectangle<int> greenHigh;
         juce::Rectangle<int> redThreshold;
+        juce::Rectangle<int> truePeakHeading;
+        juce::Rectangle<int> truePeakRed;
         juce::Rectangle<int> coloursHeading;
         juce::Rectangle<int> defaultColour;
         juce::Rectangle<int> greenColour;
@@ -81,6 +83,10 @@ namespace
         inner.removeFromTop (8);
         r.redThreshold = inner.removeFromTop (sliderRowHeight);
         inner.removeFromTop (16);
+        r.truePeakHeading = inner.removeFromTop (headingHeight);
+        inner.removeFromTop (8);
+        r.truePeakRed = inner.removeFromTop (sliderRowHeight);
+        inner.removeFromTop (16);
         r.coloursHeading = inner.removeFromTop (headingHeight);
         inner.removeFromTop (8);
         r.defaultColour = inner.removeFromTop (sliderRowHeight);
@@ -101,12 +107,13 @@ namespace
         return computeRows (bounds).reset.getBottom() + padding;
     }
 
-    void styleSlider (juce::Slider& s)
+    void styleSlider (juce::Slider& s, double minimum, double maximum,
+                      const juce::String& suffix)
     {
         s.setSliderStyle (juce::Slider::LinearHorizontal);
         s.setTextBoxStyle (juce::Slider::TextBoxRight, false, 78, 26);
-        s.setRange (MeterSettings::scaleMinLufs, MeterSettings::scaleMaxLufs, 0.1);
-        s.setTextValueSuffix (" LUFS");
+        s.setRange (minimum, maximum, 0.1);
+        s.setTextValueSuffix (suffix);
         s.setColour (juce::Slider::backgroundColourId, MeterTheme::track);
         s.setColour (juce::Slider::trackColourId, MeterTheme::textDim);
         s.setColour (juce::Slider::thumbColourId, MeterTheme::textPrimary);
@@ -152,10 +159,12 @@ namespace
 
 SettingsContent::SettingsContent (MeterSettings initial,
                                   std::function<void (MeterSettings)> onSettingsChanged,
-                                  std::function<void()> onReset)
+                                  std::function<void()> onReset,
+                                  std::function<void()> onResetWindowSize)
     : settings_ (initial.sanitised()),
       onSettingsChanged_ (std::move (onSettingsChanged)),
-      onReset_ (std::move (onReset))
+      onReset_ (std::move (onReset)),
+      onResetWindowSize_ (std::move (onResetWindowSize))
 {
     setLookAndFeel (&MeterTheme::lookAndFeel());
 
@@ -174,10 +183,15 @@ SettingsContent::SettingsContent (MeterSettings initial,
 
     for (auto* slider : { &greenLowSlider_, &greenHighSlider_, &redThresholdSlider_ })
     {
-        styleSlider (*slider);
+        styleSlider (*slider, MeterSettings::scaleMinLufs, MeterSettings::scaleMaxLufs, " LUFS");
         slider->onValueChange = [this] { emitSettings(); };
         addAndMakeVisible (*slider);
     }
+
+    styleSlider (truePeakRedSlider_, MeterSettings::truePeakRedMinDbtp,
+                 MeterSettings::truePeakRedMaxDbtp, " dBTP");
+    truePeakRedSlider_.onValueChange = [this] { emitSettings(); };
+    addAndMakeVisible (truePeakRedSlider_);
 
     for (auto* button : { &defaultColourButton_, &greenColourButton_, &redColourButton_ })
     {
@@ -193,6 +207,12 @@ SettingsContent::SettingsContent (MeterSettings initial,
     styleFlatButton (resetButton_, false);
     resetButton_.onClick = [this] { if (onReset_) onReset_(); };
     addAndMakeVisible (resetButton_);
+
+    // The window size is remembered per display mode, so the panel needs a way
+    // back to the size the current mode is designed for.
+    styleFlatButton (resetWindowSizeButton_, false);
+    resetWindowSizeButton_.onClick = [this] { if (onResetWindowSize_) onResetWindowSize_(); };
+    addAndMakeVisible (resetWindowSizeButton_);
 
     refreshControls();
     setSize (popupWidth, popupHeight());
@@ -241,6 +261,7 @@ void SettingsContent::refreshControls()
     greenLowSlider_.setValue (settings_.greenLow, juce::dontSendNotification);
     greenHighSlider_.setValue (settings_.greenHigh, juce::dontSendNotification);
     redThresholdSlider_.setValue (settings_.redThreshold, juce::dontSendNotification);
+    truePeakRedSlider_.setValue (settings_.truePeakRedThresholdDbtp, juce::dontSendNotification);
 
     const auto accentColour = juce::Colour (settings_.greenColour);
     showLabelButton_.setColour (juce::ToggleButton::tickColourId, accentColour);
@@ -259,6 +280,7 @@ void SettingsContent::emitSettings()
     settings_.greenLow = greenLowSlider_.getValue();
     settings_.greenHigh = greenHighSlider_.getValue();
     settings_.redThreshold = redThresholdSlider_.getValue();
+    settings_.truePeakRedThresholdDbtp = truePeakRedSlider_.getValue();
 
     refreshControls();
 
@@ -324,6 +346,7 @@ void SettingsContent::paint (juce::Graphics& g)
     g.setColour (MeterTheme::textSecondary);
     g.setFont (MeterTheme::regularFont (13.0f));
     g.drawText ("ZONES (LUFS)", rows.zonesHeading, juce::Justification::centredLeft, false);
+    g.drawText ("TRUE PEAK (dBTP)", rows.truePeakHeading, juce::Justification::centredLeft, false);
     g.drawText ("COLOURS", rows.coloursHeading, juce::Justification::centredLeft, false);
 
     g.setColour (MeterTheme::textSecondary);
@@ -332,6 +355,7 @@ void SettingsContent::paint (juce::Graphics& g)
     g.drawText ("Green low", rows.greenLow, juce::Justification::centredLeft, false);
     g.drawText ("Green high", rows.greenHigh, juce::Justification::centredLeft, false);
     g.drawText ("Red threshold", rows.redThreshold, juce::Justification::centredLeft, false);
+    g.drawText ("TP red at", rows.truePeakRed, juce::Justification::centredLeft, false);
     g.drawText ("Default", rows.defaultColour, juce::Justification::centredLeft, false);
     g.drawText ("Green", rows.greenColour, juce::Justification::centredLeft, false);
     g.drawText ("Red", rows.redColour, juce::Justification::centredLeft, false);
@@ -349,6 +373,7 @@ void SettingsContent::resized()
     greenLowSlider_.setBounds (rows.greenLow.withTrimmedLeft (labelWidth));
     greenHighSlider_.setBounds (rows.greenHigh.withTrimmedLeft (labelWidth));
     redThresholdSlider_.setBounds (rows.redThreshold.withTrimmedLeft (labelWidth));
+    truePeakRedSlider_.setBounds (rows.truePeakRed.withTrimmedLeft (labelWidth));
 
     const int swatchWidth = 132;
     defaultColourButton_.setBounds (rows.defaultColour.withTrimmedLeft (labelWidth)
@@ -359,4 +384,5 @@ void SettingsContent::resized()
                                     .removeFromRight (swatchWidth));
 
     resetButton_.setBounds (rows.reset.removeFromLeft (110));
+    resetWindowSizeButton_.setBounds (rows.reset.removeFromLeft (150).withTrimmedLeft (8));
 }

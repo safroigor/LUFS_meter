@@ -24,8 +24,8 @@ public:
     void paintButton (juce::Graphics&, bool highlighted, bool down) override;
 
 private:
-    static juce::Path makeResetArc (juce::Rectangle<float> area);
-    static juce::Path makeResetHead (juce::Rectangle<float> area);
+    static juce::Path makeResetArc (juce::Rectangle<float> area, float strokeWidth);
+    static juce::Path makeResetHead (juce::Rectangle<float> area, float strokeWidth);
     static juce::Path makeSettingsPath (juce::Rectangle<float> area);
     static juce::Path makeInfoRing (juce::Rectangle<float> area);
 

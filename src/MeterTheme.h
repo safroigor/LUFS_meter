@@ -26,6 +26,12 @@ namespace MeterTheme
     inline const juce::Colour textSecondary    { 0xff9a9a9a };
     inline const juce::Colour textDim          { 0xff6e6e6e };
 
+    /** Icon buttons: deliberately dim, and barely brighter on hover — they are
+        chrome for the meter, not content competing with it. */
+    inline const juce::Colour iconIdle    { 0x3dffffff }; // white at 24 %
+    inline const juce::Colour iconHover   { 0x73ffffff }; // white at 45 %
+    inline const juce::Colour iconPressed { 0xc7ffffff }; // white at 78 %
+
     /** Preferred sans-serif family with a safe fallback. */
     juce::String sansFamily();
 

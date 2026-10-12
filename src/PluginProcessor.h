@@ -1,7 +1,10 @@
 #pragma once
 
+#include <atomic>
+
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "EditorWindowSizes.h"
 #include "MeasurementEngine.h"
 #include "MeterSettings.h"
 #include "TransportTracker.h"
@@ -12,6 +15,11 @@
     This plugin is a measurement device only: it never modifies the audio
     signal.
 
+    Besides the measurement, the processor owns the persistent UI state: the
+    display settings and the window size the user dragged each display mode to
+    (see docs/decisions/0009-editor-window-size-persistence.md). Restoring a
+    state broadcasts a change, so an editor that is already open follows it.
+
     Measurement lifecycle: while the transport is playing the Integrated
     Loudness is measured continuously, including silent passages. A new
     measurement pass — which clears the accumulated value — starts only on a
@@ -19,7 +27,8 @@
     processing), never because a block merely contains silence. See
     `TransportTracker` and docs/decisions/0007-transport-lifecycle.md.
 */
-class LufsMeterAudioProcessor final : public juce::AudioProcessor
+class LufsMeterAudioProcessor final : public juce::AudioProcessor,
+                                      public juce::ChangeBroadcaster
 {
 public:
     LufsMeterAudioProcessor();
@@ -63,9 +72,32 @@ public:
     MeterSettings getSettings() const noexcept { return settings_; }
     void setSettings (const MeterSettings& s) { settings_ = s.sanitised(); }
 
+    /** Window size the user last dragged `mode` to; a size of 0 means the mode
+        has never been resized and opens at its preferred size. Thread-safe: the
+        editor writes it from the message thread, and the host may read it from
+        any thread when it saves the state. */
+    EditorWindowSizes::Size getEditorWindowSize (MeterDisplayMode mode) const noexcept;
+    void setEditorWindowSize (MeterDisplayMode mode, int width, int height) noexcept;
+    void resetEditorWindowSize (MeterDisplayMode mode) noexcept;
+
 private:
+    struct AtomicWindowSize
+    {
+        std::atomic<int> width { 0 };
+        std::atomic<int> height { 0 };
+    };
+
+    static constexpr int numDisplayModes = EditorWindowSizes::numModes;
+
+    EditorWindowSizes getEditorWindowSizes() const noexcept;
+    void applyEditorWindowSizes (const EditorWindowSizes&) noexcept;
+
     MeasurementEngine meter_;
     MeterSettings settings_;
+
+    // Window size per display mode (vertical = 0, horizontal = 1, compact = 2).
+    // See docs/decisions/0009-editor-window-size-persistence.md.
+    AtomicWindowSize editorWindowSizes_[numDisplayModes];
 
     // Measurement-pass lifecycle. Only touched on the audio thread.
     TransportTracker transportTracker_;
