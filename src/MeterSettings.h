@@ -53,9 +53,15 @@ enum class MeterZone
 struct MeterSettings
 {
     /** Display scale in LUFS, shared by the meter drawing and the settings
-        ranges. */
-    static constexpr double scaleMinLufs = -30.0;
+        ranges. It spans the full practical range of programme loudness, so
+        typical material (-14 … -16 LUFS) sits in the upper third of the meter
+        rather than around its middle. */
+    static constexpr double scaleMinLufs = -50.0;
     static constexpr double scaleMaxLufs = 0.0;
+
+    /** Range the True Peak warning threshold can be set to, in dBTP. */
+    static constexpr double truePeakRedMinDbtp = -20.0;
+    static constexpr double truePeakRedMaxDbtp = 0.0;
 
     MeterDisplayMode displayMode = MeterDisplayMode::horizontal;
     bool showLabel = true;
@@ -66,6 +72,11 @@ struct MeterSettings
     double greenLow     = -24.0;
     double greenHigh    = -14.0;
     double redThreshold = -14.0;
+
+    /** True Peak turns red at or above this many dBTP. -1.0 warns just before the
+        true-peak limit, which is what a delivery check needs; 0.0 warns only at
+        full scale. */
+    double truePeakRedThresholdDbtp = -1.0;
 
     juce::uint32 defaultColour = 0xffe6e6e6; // light gray
     juce::uint32 greenColour   = 0xff34c759; // green
@@ -109,6 +120,9 @@ struct MeterSettings
         s.greenLow     = juce::jlimit (scaleMinLufs, scaleMaxLufs, s.greenLow);
         s.greenHigh    = juce::jlimit (s.greenLow, scaleMaxLufs, s.greenHigh);
         s.redThreshold = juce::jlimit (s.greenHigh, scaleMaxLufs, s.redThreshold);
+        s.truePeakRedThresholdDbtp = juce::jlimit (truePeakRedMinDbtp,
+                                                   truePeakRedMaxDbtp,
+                                                   s.truePeakRedThresholdDbtp);
         return s;
     }
 
@@ -120,6 +134,8 @@ struct MeterSettings
             && juce::approximatelyEqual (greenLow, other.greenLow)
             && juce::approximatelyEqual (greenHigh, other.greenHigh)
             && juce::approximatelyEqual (redThreshold, other.redThreshold)
+            && juce::approximatelyEqual (truePeakRedThresholdDbtp,
+                                         other.truePeakRedThresholdDbtp)
             && defaultColour == other.defaultColour
             && greenColour == other.greenColour
             && redColour == other.redColour;
@@ -147,6 +163,7 @@ struct MeterSettings
         xml->setAttribute ("greenLow", greenLow);
         xml->setAttribute ("greenHigh", greenHigh);
         xml->setAttribute ("redThreshold", redThreshold);
+        xml->setAttribute ("truePeakRedThreshold", truePeakRedThresholdDbtp);
         xml->setAttribute ("defaultColour", colourToString (defaultColour));
         xml->setAttribute ("greenColour", colourToString (greenColour));
         xml->setAttribute ("redColour", colourToString (redColour));
@@ -181,6 +198,8 @@ struct MeterSettings
         s.greenLow     = xml.getDoubleAttribute ("greenLow", s.greenLow);
         s.greenHigh    = xml.getDoubleAttribute ("greenHigh", s.greenHigh);
         s.redThreshold = xml.getDoubleAttribute ("redThreshold", s.redThreshold);
+        s.truePeakRedThresholdDbtp = xml.getDoubleAttribute ("truePeakRedThreshold",
+                                                             s.truePeakRedThresholdDbtp);
         s.defaultColour = colourFromString (xml.getStringAttribute ("defaultColour"), s.defaultColour);
         s.greenColour   = colourFromString (xml.getStringAttribute ("greenColour"), s.greenColour);
         s.redColour     = colourFromString (xml.getStringAttribute ("redColour"), s.redColour);

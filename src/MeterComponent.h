@@ -4,6 +4,7 @@
 
 #include "MeasurementEngine.h"
 #include "MeterSettings.h"
+#include "ValueAnimation.h"
 
 /**
     Draws the Integrated Loudness value as a segmented bar plus a numeric reading
@@ -26,12 +27,36 @@ public:
     void setSettings (const MeterSettings& s);
     const MeterSettings& getSettings() const noexcept { return settings_; }
 
+    /** Horizontal space the editor's overlaid buttons reserve at the sides of
+        the meter's own rows: the Horizontal TP / LS / LM row and the Compact
+        reading capsule are both laid out — and centred — inside what is left,
+        so neither can run under a button. Vertical leaves both insets at zero
+        (its readouts sit beside the bar, and its buttons are in the corners). */
+    void setControlInsets (int leftInset, int rightInset);
+
+    /** Advances the fill animation by the elapsed frame time. The first valid
+        value of a pass (or the first frame after the editor opened mid-pass) is
+        filled up to from the bottom of the scale, with the reading travelling
+        with it; after that the meter follows the measurement directly. Called
+        by the editor's repaint timer — painting itself changes nothing, so an
+        offscreen render is reproducible. */
+    void advanceAnimation (double deltaSeconds);
+
+    /** Ends any running fill and shows the settled value (offscreen renders and
+        tests, which have no frame clock). */
+    void settleAnimation();
+
+    /** Drops the held reading (the editor's Reset button): the meter clears to
+        the "no value yet" placeholder instead of holding the last reading while
+        a new pass is measured. */
+    void resetDisplay();
+
     void paint (juce::Graphics&) override;
 
     /** Extra height the horizontal layout reserves above the segmented scale for
         the secondary readout row (TP, LS, LM). The editor adds the same amount
         to its preferred/minimum height so the primary composition is unchanged. */
-    static constexpr int secondaryRowHeight = 40;
+    static constexpr int secondaryRowHeight = 32;
 
 private:
     void paintHorizontal (juce::Graphics&, juce::Rectangle<int> area,
@@ -66,6 +91,12 @@ private:
 
     const MeasurementEngine& engine_;
     MeterSettings settings_;
+    int controlInsetLeft_ = 0;
+    int controlInsetRight_ = 0;
+
+    /** Filled-in value of the current pass. See `advanceAnimation`. */
+    ValueAnimation animation_;
+    bool hadValue_ = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MeterComponent)
 };

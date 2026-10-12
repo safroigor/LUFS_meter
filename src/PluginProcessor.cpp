@@ -123,16 +123,88 @@ juce::AudioProcessorEditor* LufsMeterAudioProcessor::createEditor()
     return new LufsMeterAudioProcessorEditor (*this);
 }
 
+EditorWindowSizes::Size LufsMeterAudioProcessor::getEditorWindowSize (MeterDisplayMode mode) const noexcept
+{
+    const auto index = juce::jlimit (0, numDisplayModes - 1, (int) mode);
+
+    return { editorWindowSizes_[index].width.load (std::memory_order_relaxed),
+             editorWindowSizes_[index].height.load (std::memory_order_relaxed) };
+}
+
+void LufsMeterAudioProcessor::setEditorWindowSize (MeterDisplayMode mode, int width, int height) noexcept
+{
+    if (width <= 0 || height <= 0)
+        return;
+
+    const auto index = juce::jlimit (0, numDisplayModes - 1, (int) mode);
+    const auto size = EditorWindowSizes::clamp (mode, { width, height });
+
+    editorWindowSizes_[index].width.store (size.width, std::memory_order_relaxed);
+    editorWindowSizes_[index].height.store (size.height, std::memory_order_relaxed);
+}
+
+void LufsMeterAudioProcessor::resetEditorWindowSize (MeterDisplayMode mode) noexcept
+{
+    const auto index = juce::jlimit (0, numDisplayModes - 1, (int) mode);
+
+    editorWindowSizes_[index].width.store (0, std::memory_order_relaxed);
+    editorWindowSizes_[index].height.store (0, std::memory_order_relaxed);
+}
+
+EditorWindowSizes LufsMeterAudioProcessor::getEditorWindowSizes() const noexcept
+{
+    EditorWindowSizes sizes;
+
+    for (auto mode : { MeterDisplayMode::vertical,
+                       MeterDisplayMode::horizontal,
+                       MeterDisplayMode::compact })
+    {
+        const auto size = getEditorWindowSize (mode);
+        sizes.setSize (mode, size.width, size.height);
+    }
+
+    return sizes;
+}
+
+void LufsMeterAudioProcessor::applyEditorWindowSizes (const EditorWindowSizes& sizes) noexcept
+{
+    for (auto mode : { MeterDisplayMode::vertical,
+                       MeterDisplayMode::horizontal,
+                       MeterDisplayMode::compact })
+    {
+        const auto size = sizes.sizeFor (mode);
+
+        if (size.isUnset())
+            resetEditorWindowSize (mode);
+        else
+            setEditorWindowSize (mode, size.width, size.height);
+    }
+}
+
 void LufsMeterAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     if (auto xml = settings_.toXml())
+    {
+        // The window size belongs to the state: hosts recreate the editor when
+        // they reopen its window, and the size it is constructed with is the
+        // only one they can restore (ADR 0009).
+        getEditorWindowSizes().toXml (*xml);
         copyXmlToBinary (*xml, destData);
+    }
 }
 
 void LufsMeterAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
+    {
         settings_ = MeterSettings::fromXml (*xml);
+        applyEditorWindowSizes (EditorWindowSizes::fromXml (*xml));
+
+        // Asynchronous and safe from any thread: an open editor follows the
+        // restored settings, display mode and window size instead of leaving a
+        // stale layout on screen.
+        sendChangeMessage();
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
